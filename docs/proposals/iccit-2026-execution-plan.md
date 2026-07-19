@@ -76,6 +76,62 @@ Decide once, now, and do not revisit mid-run. Protocol drift is the most common 
 > [!NOTE]
 > **Fusion caveat worth one sentence in the paper.** The vendored reference's own ablation shows WBF *winning* on private LB (0.185) while *losing* on CV (0.4158 vs 0.4419) — and the author chose NMS by reasoning about test labeling, not measurement. Note that this remains unsettled rather than inheriting it as fact. Cheap credibility.
 
+### 2.1 GPU Choice: P100 over a single T4
+
+Kaggle bills GPU sessions by **wall-clock, not per-GPU** — selecting `T4 x2` and using `device=0` burns identical quota while giving you strictly less card. So the real choice is single P100 vs single T4.
+
+| | P100 (Pascal GP100) | T4 (Turing TU104) |
+|---|---|---|
+| Memory bandwidth | **732 GB/s** | 320 GB/s |
+| FP32 | 9.5 TFLOPS | 8.1 TFLOPS |
+| FP16 | 19 TFLOPS (2× rate, **no tensor cores**) | 65 TFLOPS (tensor cores) |
+| Power envelope | 250 W | **70 W** (throttles under sustained load) |
+| VRAM | 16 GB HBM2 | 16 GB GDDR6 |
+
+T4 wins on FP16 paper specs. Reality is closer: T4 is bandwidth-starved and power-capped, so it does not hold peak throughput across a 40-epoch run. **Expect P100 ≈ 1.0–1.3× a single T4 here.** Modest, but free, and one less thing to configure.
+
+**Decision: P100, `device=0`.** Do not spend deadline time on 2×T4 DDP — notebook spawn failures are a known sink, best case saves ~2 h across three models, worst case eats a day.
+
+**AMP caveat**: P100 has 2× FP16 math but no tensor cores, so `amp=True` gains less than on Turing. If you hit NaN losses or gradient-scaler thrash, drop to FP32 — 9.5 TFLOPS is fine for `s`-scale at 512px and you have VRAM headroom.
+
+> [!TIP]
+> This decision is worth ~20–40 min across the whole project. The positive-only subset decision is worth ~20 h. Do not over-optimize here.
+
+### 2.2 Run Logging — mandatory from run 1
+
+**One notebook, not two.** The paper's entire claim is *identical conditions across three models*. Two training scripts drift — someone patches a bug in one, tweaks augmentation in the other, and by D8 the controlled comparison is unprovable. Keep config in a `.py`, keep the notebook thin. The config file becomes a paper artifact.
+
+Use **[`src/utils/run_logger.py`](../../src/utils/run_logger.py)**. It captures hardware, software, hyperparameters, data shape and results per run → one JSON each plus an append-only `master_results.csv`.
+
+```python
+from run_logger import RunLogger, benchmark_inference
+
+log = RunLogger(run_name="yolo26s_512_e40_seed0", out_dir="/kaggle/working/runs")
+log.set_params(model="yolo26s", imgsz=512, epochs=40, batch=16, seed=0,
+               optimizer="auto", amp=True, device=0,
+               subset="positive_only", fusion="wbf@0.5", split="80/10/10")
+log.set_data(n_train=3520, n_val=440, n_test=440, n_classes=14)
+# ... train ...
+log.from_ultralytics(results).set_results(map40=0.271, per_class={...})
+log.finish()
+```
+
+**Log params BEFORE training, not after.** Retroactively reconstructing which config produced which number on D10 is misery, and it is exactly when you have no time for it.
+
+> [!CAUTION]
+> **The FPS confound — mAP is hardware-independent, latency is not.**
+>
+> If run 1 lands on P100 and run 3 on T4, detection metrics stay valid but **every FPS / inference-time / throughput number is invalid**.
+>
+> This matters here specifically: YOLO26 is marketed as edge-first with a claimed 43% CPU inference-speed gain over YOLO11. A latency table is a natural inclusion and reviewers will expect one.
+>
+> **Rule**: train wherever, then run `benchmark_inference()` over all three checkpoints **back to back, one session, one card**. Costs minutes. Call `RunLogger.check_hardware_consistency()` before writing the results section — it fails loudly on mixed hardware.
+
+**What gets logged** (→ feeds the paper's reproducibility statement directly): GPU name + compute capability + VRAM + tensor-core flag, torch/CUDA/cuDNN/Ultralytics versions, git commit, seed, every hyperparameter, dataset split sizes, wall-clock and sec/epoch, all metrics.
+
+> [!NOTE]
+> **`from_ultralytics()` does not give you mAP@0.4.** Ultralytics reports @0.5 and @0.5:0.95 natively; the VinBigData competition metric @0.4 must be computed separately. Do not let @0.5 silently land in a column labelled @0.4 — that single error would misalign your entire related-work comparison.
+
 ---
 
 ## 3. XAI Design — the actual contribution
@@ -116,14 +172,14 @@ Writing runs **in parallel** from D6. Do not leave it to the end.
 |---|---|---|---|
 | **D1** | Jul 19–20 | Fix disk space → sandbox boots. Pull VinDr 1024px JPG (Kaggle public dataset, 3.59 GB — do not re-derive from 192 GB DICOM). Inspect annotations. | Data loads |
 | **D2** | Jul 21 | Rater bbox fusion (WBF@0.5). Convert to YOLO format. Stratified 80/10/10 split. Sanity-visualize 20 fused boxes over images. | **Labels verified visually** |
-| **D3** | Jul 22 | YOLOv8s train run 1. Validate whole pipeline end-to-end on 5 epochs first, *then* launch 40. | Pipeline works |
+| **D3** | Jul 22 | YOLOv8s train run 1, **wired to `RunLogger` from the first run**. Validate pipeline end-to-end on 5 epochs first, *then* launch 40. | Pipeline works + `master_results.csv` has a row |
 | **D4** | Jul 23 | YOLOv8s completes. Compute mAP@0.4/@0.5/@0.5:0.95. **Baseline sanity check.** | ⛔ **Gate 1** — see kill criteria |
 | **D5** | Jul 24 | YOLO11s + YOLO26s launched. YOLO26 API differences may need fixing — budget for it. | Both training |
 | **D6** | Jul 25 | Both complete. Results table v1. **Start writing: Intro + Related Work.** | 3 models done |
 | **D7** | Jul 26 | EigenCAM + Grad-CAM++ implemented on all 3. Qualitative check on 10 images. | CAMs render |
 | **D8** | Jul 27 | XAI metrics coded: pointing game, EBPG, CAM-box IoU. Run across test split. | ⛔ **Gate 2** |
 | **D9** | Jul 28 | Deletion/insertion AUC. Axis A/B/C analysis. Figures. D-RISE only if ahead. | Findings identified |
-| **D10** | Jul 29 | All tables + figures final. **Write Methods + Results.** | Draft complete |
+| **D10** | Jul 29 | `RunLogger.check_hardware_consistency()` → then `benchmark_inference()` over all 3 checkpoints, one session one card. Tables + figures final (`master_table()` → `latex-results-table` skill). **Write Methods + Results.** | Draft complete |
 | **D11** | Jul 30 | Discussion, limitations, abstract. Full read-through. Reference check. | Full draft |
 | **D12** | Jul 31 | Format to IEEE template, proofread, **submit via Microsoft CMT**. Do not submit in the final hour. | ✅ Submitted |
 
@@ -178,4 +234,8 @@ Lead with 2. Claim 1 has a shelf life measured in months. Claim 3 is the weakest
 - [ ] Download ICCIT IEEE template + confirm page limit
 - [ ] Create Microsoft CMT account early (ICCIT uses CMT)
 - [ ] Check ICCIT plagiarism / multiple-submission policy — you may not parallel-submit to COMPAS
-- [ ] Log every hyperparameter to a config file from run 1, not retroactively
+- [ ] Set notebook accelerator to **GPU P100**
+- [ ] Smoke-test `python src/utils/run_logger.py` on Kaggle — confirm it prints the right card before any real run
+- [ ] Copy `run_logger.py` into the Kaggle notebook (or attach the repo as a Kaggle Dataset)
+- [ ] Persist `runs/` to a Kaggle Dataset, not just `/kaggle/working` — the 12 h session kill takes `/kaggle/working` with it
+- [ ] Log every hyperparameter from run 1, not retroactively
