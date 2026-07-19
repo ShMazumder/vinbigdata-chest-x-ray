@@ -1,0 +1,59 @@
+# Data
+*.dicom
+*.dcm
+*.nii
+*.nii.gz
+dataset/
+dataset-jpg/
+dataset-nih/
+data/raw/
+data/processed/
+
+# Model weights
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.hdf5
+*.onnx
+*.tflite
+*.pb
+experiments/checkpoints/
+
+# Logs
+experiments/logs/
+*.log
+wandb/
+lightning_logs/
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv/
+env/
+venv/
+.conda/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
