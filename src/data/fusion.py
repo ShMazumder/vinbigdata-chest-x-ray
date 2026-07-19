@@ -108,6 +108,10 @@ def fuse_dataset(
     verbose: bool = True,
 ) -> pd.DataFrame:
     """Fuse every image. `dims` maps image_id -> (width, height)."""
+    # Pre-group once. Filtering with df[df.image_id == id] inside the loop is a
+    # full scan per image -- O(n_rows * n_images), ~160M comparisons here.
+    grouped = dict(tuple(df.groupby("image_id")))
+
     out = []
     ids = df["image_id"].unique()
     for i, img_id in enumerate(ids):
@@ -115,7 +119,7 @@ def fuse_dataset(
             print(f"  fusing {i}/{len(ids)}")
         w, h = dims[img_id]
         fused = fuse_image_boxes(
-            df[df["image_id"] == img_id], w, h, method=method, iou_thr=iou_thr
+            grouped[img_id], w, h, method=method, iou_thr=iou_thr
         )
         fused["image_id"] = img_id
         out.append(fused)
