@@ -1,233 +1,208 @@
 # Publication-Oriented Research Proposals for VinBigData Chest X-Ray
 
-*Prepared: July 2026 — Actionable research directions with clear publication targets*
+*Prepared: July 2026 — Updated with deep novelty search results*
 
 ---
 
 ## Overview: Gap Analysis
 
-Based on the comparative analysis of 25+ existing works, the following **unaddressed or underexplored gaps** present viable publication opportunities:
+Based on the comparative analysis of 25+ existing works **and deep search verification (July 2026)**, the following table shows the updated status of each proposed gap:
 
-| Gap ID | Research Gap | Current State | Opportunity |
+| Gap ID | Research Gap | Current State (Verified) | Opportunity Status |
 |---|---|---|---|
-| G1 | No YOLO v8/v10/v11 + modern attention systematic benchmark on VinDr-CXR | Only YOLOv5, v7, v11-MFF exist; no unified comparison | First comprehensive modern YOLO benchmark |
-| G2 | Rater-aware training is unexplored | All works fuse raters naively (NMS/WBF) or ignore rater IDs | Novel rater-conditioned learning framework |
-| G3 | No transformer-based detector evaluated | Only CNN-based detectors (EfficientDet, YOLO) | DETR/DINO/Co-DETR on medical detection |
-| G4 | Foundation model fine-tuning gap | GroundingDINO-Med exists but shallow; no SAM/DINO+SAM | Systematic foundation model adaptation study |
-| G5 | No lightweight/edge-deployable model study | tariqshaban mentions mobile but no actual work done | Efficient architecture search for edge |
-| G6 | Active learning / annotation efficiency unexplored | All works use full 15K training set | Reduce annotation cost via AL strategies |
-| G7 | Explainability beyond saliency maps | MedFocus shows standard attribution fails causal tests | Concept-based or prototype-based explanations |
-| G8 | Multi-rater disagreement as training signal | Rater disagreement treated as noise to suppress | Leverage disagreement as uncertainty signal |
+| G1 | Modern YOLO systematic benchmark on VinDr-CXR | **PARTIALLY FILLED** — YOLO-CXR (YOLOv8+RefConv+ELCA) published; YOLOv11-MFF published. But no multi-YOLO comparison (v8 vs v9 vs v10 vs v11) exists. | ⚠️ Narrower gap — needs novel angle |
+| G2 | Rater-aware training | **PARTIALLY FILLED** — TwinTrack (MIDL 2026) models inter-rater disagreement. But not applied to VinDr-CXR specifically, and not for object detection. | ✅ Gap exists for detection task |
+| G3 | Transformer-based detector on VinDr | **PARTIALLY FILLED** — CD-DETR (2025, NIH dataset), CGF-DETR (2025, RSNA Pneumonia). Neither evaluated on VinDr-CXR specifically. | ✅ Gap exists for VinDr-CXR |
+| G4 | GroundingDINO + SAM/SAM2 for CXR | **PARTIALLY FILLED** — LuGSAM (ICU CXR) exists; GroundingDINO-Med fine-tuned on VinDr exists. But no systematic GroundingDINO+SAM2 few-shot study on VinDr-CXR. | ⚠️ Narrower gap — needs differentiation |
+| G5 | Lightweight/edge deployment | **PARTIALLY FILLED** — General KD for CXR classification exists widely. But no KD specifically for CXR object detection with edge benchmarks. | ✅ Gap exists for detection KD |
+| G6 | Active learning for CXR detection | **PARTIALLY OPEN** — AL for CXR classification exists. AL for CXR object detection with bounding boxes is underexplored. No work on VinDr-CXR. | ✅ Strong gap |
+| G7 | Metadata leakage mitigation | **PARTIALLY FILLED** — Domain adversarial CXR work exists (scanner bias, artifact robustness). But no work specifically addressing VinDr-CXR SAET leakage with DANN. | ✅ Gap exists for VinDr-specific |
 
 ---
 
-## Proposed Research Directions
+## Revised Proposals with Novelty Risk Assessment
 
-### Proposal 1: Modern YOLO Architecture Benchmark with Rater-Aware Training
-**🎯 Target Venue**: PLOS ONE / IEEE Access / Computers in Biology and Medicine
+### Proposal 1: Modern YOLO Benchmark + Rater-Aware Training *(REVISED — merged with rater-awareness)*
+**🎯 Target Venue**: Computers in Biology and Medicine / IEEE Access
 
-**Novelty**: First systematic evaluation of YOLOv8, YOLOv9, YOLOv10, and YOLO11 on VinDr-CXR with a novel rater-aware bbox consensus mechanism that weights annotations by individual radiologist reliability scores.
+**Novelty Risk**: ⚠️ **MEDIUM** — YOLO-CXR (YOLOv8+RefConv+ELCA, mAP@0.5=0.338) already published. YOLOv11-MFF also exists.
 
-**Methodology**:
-1. Implement all modern YOLO architectures under identical conditions
-2. Compute per-radiologist reliability scores based on inter-rater agreement
-3. Replace naive NMS fusion with reliability-weighted soft consensus
-4. Evaluate at multiple resolutions (512, 640, 768, 1024, 1280)
-5. Ablate: rater-weighted vs. uniform vs. majority-vote vs. ZFTurbo NMS
+**Existing Prior Work Found**:
+- **YOLO-CXR** (2025/2026): YOLOv8s + RefConv + ELCA → mAP@0.5=0.338 on VinDr-CXR
+- **YOLOv11-MFF** (2025, PLOS ONE): Multi-scale frequency fusion → mAP@0.5=0.415
+- No multi-YOLO comparison paper exists (v8 vs v9 vs v10 vs v11 under identical conditions)
 
-**Metrics**: mAP@0.4, mAP@0.5, mAP@0.5:0.95, per-class AP, precision, recall, F1, inference FPS
+**How to Differentiate**:
+1. ~~Simple benchmark~~ → Add **rater-reliability-weighted bbox consensus** as novel contribution
+2. Include **rater-conditioned training** where model awareness of annotator identity improves robustness
+3. Compare 5+ architectures (YOLOv8s, v9, v10, v11, YOLO-CXR) under identical settings
+4. Ablation: reliability-weighted consensus vs. majority-vote vs. NMS vs. WBF
 
-**Expected Contribution**:
-- Benchmark table comparing 5+ YOLO architectures on medical detection
-- Novel rater-aware training protocol that outperforms naive fusion
-- Open-source codebase for reproducibility
-
-**Feasibility**: ⭐⭐⭐⭐⭐ (High — uses existing dataset and off-the-shelf architectures)
-**Impact**: ⭐⭐⭐ (Moderate — incremental but solid engineering contribution)
-**Timeline**: 6–8 weeks
+**Updated Assessment**: Publishable if rater-aware training is the primary contribution, with multi-YOLO benchmark as supporting empirical evidence.
 
 ---
 
-### Proposal 2: Transformer-Based Detection (RT-DETR / Co-DETR) for Chest X-Ray Abnormalities
-**🎯 Target Venue**: Medical Image Analysis / IEEE TMI / MICCAI Workshop
+### Proposal 2: Transformer Detection (RT-DETR / Co-DETR) on VinDr-CXR
+**🎯 Target Venue**: Medical Image Analysis / MICCAI Workshop
 
-**Novelty**: First application of end-to-end transformer detectors (RT-DETR, Co-DETR, DINO-DETR) to the VinDr-CXR benchmark, eliminating NMS post-processing and leveraging global attention for multi-scale pathology detection.
+**Novelty Risk**: ✅ **LOW** — No DETR-family model has been evaluated on VinDr-CXR.
 
-**Methodology**:
-1. Adapt RT-DETR, Co-DETR, and Deformable-DETR for the 14-class VinDr task
-2. Compare against EfficientDet-d4/d5 and YOLOv11-MFF baselines
-3. Leverage multi-scale deformable attention for small lesion detection (nodules, calcifications)
-4. Analyze attention maps as inherent explainability (no separate saliency method needed)
-5. Evaluate NMS-free paradigm's impact on multi-rater label noise
+**Existing Prior Work Found**:
+- **CD-DETR** (2025, PLOS ONE): Custom DETR for CXR → evaluated on **NIH ChestXray14** only (P=88.3%, R=86.6%)
+- **CGF-DETR** (2025, arXiv): RT-DETR for pneumonia → evaluated on **RSNA Pneumonia** only (mAP@0.5=82.2%)
+- **Neither** has been applied to VinDr-CXR's 14-class multi-label detection with multi-rater annotations
 
-**Metrics**: mAP@0.4, mAP@0.5, per-class AP (especially small objects: class 2, 8), attention visualizations
+**How to Position**:
+1. First RT-DETR/Co-DETR evaluation on VinDr-CXR (14-class bounding box detection)
+2. NMS-free detection paradigm's advantage with multi-rater label noise
+3. Head-to-head comparison: DETR variants vs. YOLO variants vs. EfficientDet on same dataset
+4. Attention map analysis as inherent explainability
 
-**Expected Contribution**:
-- First DETR-family results on VinDr-CXR
-- Demonstrate that NMS-free detection handles multi-rater noise better
-- Attention-based explainability as a clinical side-benefit
-
-**Feasibility**: ⭐⭐⭐⭐ (Good — RT-DETR has efficient implementations)
-**Impact**: ⭐⭐⭐⭐ (High — strong narrative for medical AI)
-**Timeline**: 8–12 weeks
+**Updated Assessment**: **Strong candidate** — clear novelty in dataset application + NMS-free advantage for noisy labels.
 
 ---
 
-### Proposal 3: Foundation Model Adaptation — GroundingDINO + SAM2 for Zero-Shot and Few-Shot CXR Detection
-**🎯 Target Venue**: Nature Scientific Reports / MICCAI 2027 / Medical Image Analysis
+### Proposal 3: Foundation Model — GroundingDINO + SAM2 for CXR Detection *(REVISED)*
+**🎯 Target Venue**: Nature Scientific Reports / Medical Image Analysis
 
-**Novelty**: A unified pipeline combining text-prompted detection (GroundingDINO) with automatic segmentation (SAM2) for zero-shot and few-shot chest X-ray abnormality detection, including prompt engineering strategies for clinical vocabulary.
+**Novelty Risk**: ⚠️ **MEDIUM** — Grounded SAM pipeline exists for medical imaging. GroundingDINO-Med fine-tuned on VinDr exists.
 
-**Methodology**:
-1. Evaluate GroundingDINO zero-shot with clinical prompts vs. simple class names
-2. Chain GroundingDINO → SAM2 for detection + segmentation pipeline
-3. Few-shot adaptation: fine-tune with 1%, 5%, 10%, 25% labeled data
-4. Compare against fully-supervised EfficientDet and YOLO baselines
-5. Clinical prompt taxonomy: anatomical descriptors vs. class names vs. radiological descriptions
+**Existing Prior Work Found**:
+- **GroundingDINO-Med** (2024, GitHub): Fine-tuned GroundingDINO on VinBigData → open-vocabulary 14-class detection
+- **LuGSAM** (2025): Lung Grounded-SAM for ICU CXR segmentation
+- **Grounded-SAM-2** (IDEA-Research): General pipeline; not applied to CXR abnormality detection+segmentation
+- No systematic **few-shot study** (1%/5%/10%/25% labels) comparing foundation models vs supervised baselines on VinDr-CXR
 
-**Metrics**: mAP@0.4, mAP@0.5, Dice (segmentation), detection rate per class, prompt sensitivity analysis
+**How to Differentiate**:
+1. ~~Basic pipeline~~ → Focus on **label-efficiency study**: how much labeled data can foundation models save?
+2. **Clinical prompt taxonomy**: systematic comparison of prompt strategies (class name vs. anatomical description vs. radiological finding)
+3. **GroundingDINO 1.5/DINO-X + SAM2** (latest models, not yet applied to CXR)
+4. Compare against fully-supervised YOLO/EfficientDet baselines at each label budget
 
-**Expected Contribution**:
-- First GroundingDINO+SAM2 pipeline for CXR abnormality detection and segmentation
-- Clinical prompt engineering guidelines for medical object detection
-- Demonstrates that foundation models can match supervised baselines with <25% labels
-
-**Feasibility**: ⭐⭐⭐⭐ (Good — pretrained models available)
-**Impact**: ⭐⭐⭐⭐⭐ (Very High — foundation models are trending topic)
-**Timeline**: 10–14 weeks
+**Updated Assessment**: Publishable with focus on few-shot label efficiency + prompt engineering. Pure pipeline paper would be weak.
 
 ---
 
-### Proposal 4: Lightweight Edge-Deployable CXR Detection with Knowledge Distillation
-**🎯 Target Venue**: IEEE JBHI / Computers in Biology and Medicine / Artificial Intelligence in Medicine
+### Proposal 4: Lightweight Edge-Deployable CXR Detection with KD *(REVISED)*
+**🎯 Target Venue**: IEEE JBHI / Artificial Intelligence in Medicine
 
-**Novelty**: Design an efficient, mobile-deployable chest X-ray detector using knowledge distillation from a large teacher ensemble to a compact student model, targeting real-time inference on edge devices.
+**Novelty Risk**: ⚠️ **MEDIUM** — KD for CXR classification is well-studied. KD for CXR **object detection** is underexplored.
 
-**Methodology**:
-1. Teacher: Ensemble of EfficientDet-d5 + YOLOv11 + RT-DETR (from Proposals 1–2)
-2. Student architectures: YOLOv8n, MobileNetV3-SSD, EfficientDet-d0, NanoDet-Plus
-3. Distillation: Feature-level + logit-level + bbox-level KD
-4. Quantization: INT8 and FP16 for mobile deployment
-5. Benchmark on CPU, mobile GPU (TFLite), and NVIDIA Jetson
+**Existing Prior Work Found**:
+- KD for CXR classification: MobileNet students, 95% parameter reduction, TFLite deployment — all exist
+- **DISTL framework** (2025): Self-evolving distillation for CXR
+- **No KD work specifically for CXR object detection** (bounding box regression + classification distillation)
+- No edge deployment benchmarks (Jetson, TFLite) for CXR detection models
 
-**Metrics**: mAP@0.4, inference latency (ms), model size (MB), FLOPs, power consumption
+**How to Differentiate**:
+1. Focus exclusively on **detection task** (bbox KD), not classification
+2. Feature-level + logit-level + bbox-regression distillation
+3. Actual hardware benchmarks (NVIDIA Jetson, mobile TFLite, ONNX Runtime)
+4. Teacher: large RT-DETR or EfficientDet-d5 → Student: YOLOv8n or NanoDet
 
-**Expected Contribution**:
-- Production-ready mobile CXR screening model
-- KD recipe for medical object detection (teacher → student transfer)
-- Edge deployment benchmarks (Jetson, TFLite, ONNX Runtime)
-
-**Feasibility**: ⭐⭐⭐⭐ (Good — standard ML pipeline)
-**Impact**: ⭐⭐⭐⭐ (High — clinical deployment narrative)
-**Timeline**: 10–12 weeks
+**Updated Assessment**: Publishable — detection KD is a clear gap. Combine with real hardware benchmarks.
 
 ---
 
-### Proposal 5: Multi-Rater Disagreement as Uncertainty — Probabilistic Detection with Calibrated Confidence
-**🎯 Target Venue**: Medical Image Analysis / MICCAI / ICLR (Health Track)
+### Proposal 5: Multi-Rater Disagreement as Uncertainty
+**🎯 Target Venue**: Medical Image Analysis / MICCAI / ICLR Health Track
 
-**Novelty**: Instead of suppressing multi-rater disagreement, model it as aleatoric uncertainty. Train detectors that output calibrated confidence intervals reflecting inter-rater variability.
+**Novelty Risk**: ⚠️ **MEDIUM** — Multi-rater uncertainty modeling for CXR classification exists (TwinTrack, MIDL 2026). Not applied to object detection.
 
-**Methodology**:
-1. Compute per-image rater agreement statistics (Fleiss' κ, IoU between raters)
-2. Design uncertainty-aware loss: higher loss weight where raters agree, softer targets where they disagree
-3. Output: per-detection confidence + calibrated uncertainty estimate
-4. Evaluate: Expected Calibration Error (ECE), reliability diagrams, uncertainty-quality correlation
-5. Clinical simulation: Does uncertainty-aware triage reduce false negatives?
+**Existing Prior Work Found**:
+- **TwinTrack** (MIDL 2026): Distinguishes inter-rater disagreement from noise for CXR **classification**
+- Individual rater annotation training (Wellcome Open Research, 2024): Trains on per-reader labels for CXR **classification**
+- Heteroscedastic noise modeling (GMM-based, 2024): For CXR **classification**
+- **No work modeling multi-rater disagreement for CXR object detection** (bbox-level uncertainty)
 
-**Metrics**: mAP@0.4, ECE, Brier score, uncertainty-mAP correlation, triage simulation
+**How to Differentiate**:
+1. **Bounding-box-level uncertainty**: Model spatial disagreement between raters' bbox annotations, not just label disagreement
+2. Per-detection calibrated confidence intervals reflecting inter-rater bbox IoU
+3. Specific to VinDr-CXR's 3-rater training setup (unique multi-rater detection dataset)
+4. Clinical triage simulation: does bbox-level uncertainty improve false negative reduction?
 
-**Expected Contribution**:
-- First work to explicitly model multi-rater disagreement as useful signal (not noise)
-- Calibrated uncertainty estimates for clinical decision support
-- Framework applicable to any multi-rater medical imaging dataset
-
-**Feasibility**: ⭐⭐⭐ (Moderate — requires careful probability modeling)
-**Impact**: ⭐⭐⭐⭐⭐ (Very High — novel research direction)
-**Timeline**: 12–16 weeks
+**Updated Assessment**: **Strong candidate** — classification uncertainty exists, but detection-level (bbox) uncertainty is genuinely novel.
 
 ---
 
 ### Proposal 6: Active Learning for Annotation-Efficient CXR Detection
 **🎯 Target Venue**: IEEE TMI / MIDL / Medical Image Analysis
 
-**Novelty**: Determine the minimum annotation budget needed to achieve competitive detection performance on VinDr-CXR using active learning strategies tailored for multi-label object detection with class imbalance.
+**Novelty Risk**: ✅ **LOW** — AL for CXR object detection is largely unexplored.
 
-**Methodology**:
-1. Simulate annotation scenarios: 5%, 10%, 25%, 50%, 100% of training data
-2. AL strategies: uncertainty sampling, diversity sampling, badge, learning loss, coreset
-3. Class-balanced AL: prioritize underrepresented classes in selection
-4. Compare against random sampling and full-data baselines
-5. Evaluate annotation cost vs. performance trade-off curves
+**Existing Prior Work Found**:
+- AL for CXR **classification**: Well-studied (uncertainty, diversity, coreset strategies)
+- AL for CXR **bounding box detection**: Minimal literature; NLP-generated "silver" annotations exist but not AL-driven
+- **No AL study on VinDr-CXR** for detection
+- Few-shot object detection in CXR mentioned but not formalized as AL
 
-**Metrics**: mAP@0.4 at each budget level, annotation efficiency curves, per-class AP evolution
+**How to Position**:
+1. First AL study for CXR abnormality **detection** (bounding box task)
+2. VinDr-CXR as benchmark: 15K training images → what's the minimum for 90% performance?
+3. Class-balanced AL strategy for long-tailed medical detection
+4. Compare AL strategies: uncertainty, diversity, badge, learning loss, coreset
 
-**Expected Contribution**:
-- First active learning study for CXR abnormality detection
-- Practical guidelines: "X% of labels achieves Y% of full performance"
-- Class-balanced AL strategy for long-tailed medical detection
-
-**Feasibility**: ⭐⭐⭐⭐ (Good — well-studied AL methods)
-**Impact**: ⭐⭐⭐⭐ (High — practical clinical annotation cost reduction)
-**Timeline**: 10–14 weeks
+**Updated Assessment**: **Very strong candidate** — genuinely underexplored area with practical clinical impact.
 
 ---
 
-### Proposal 7: Metadata Leakage Mitigation — Domain-Adversarial Training for Scanner-Invariant CXR Detection
-**🎯 Target Venue**: Nature Scientific Reports / Medical Image Analysis / Radiology: AI
+### Proposal 7: SAET Metadata Leakage Mitigation via Domain-Adversarial Training
+**🎯 Target Venue**: Nature Scientific Reports / Radiology: AI
 
-**Novelty**: Explicitly address the documented SAET/scanner metadata leakage in VinDr-CXR using domain-adversarial neural networks (DANN) to learn scanner-invariant features.
+**Novelty Risk**: ⚠️ **MEDIUM** — Domain adversarial CXR work exists, but not specifically for VinDr-CXR SAET leakage.
 
-**Methodology**:
-1. Quantify leakage: reproduce gradient-boosting on DICOM metadata (age, sex, SAET)
-2. Domain-adversarial training: adversary predicts SAET; detector learns scanner-invariant features
-3. Evaluate on cross-scanner generalization (train on Hospital A, test on Hospital B)
-4. Compare: Standard training vs. DANN vs. metadata-stripped training vs. batch normalization strategies
-5. External validation on NIH ChestXray14 and CheXpert
+**Existing Prior Work Found**:
+- Domain adversarial CXR: Scanner-invariant features via DANN — exists for general CXR domain adaptation
+- Adversarial CAM Guidance (2026): Forces models to ignore framing artifacts — exists
+- Bias mitigation frameworks (CNN + XGBoost, demographic debiasing) — exist
+- **No paper specifically reproduces and mitigates VinDr-CXR SAET leakage** with DANN
+- The SAET leakage was documented in Kaggle discussion (2021) but never formally studied/mitigated in a publication
 
-**Metrics**: mAP@0.4 (same-scanner, cross-scanner), AUROC, scanner prediction accuracy (should decrease)
+**How to Differentiate**:
+1. **VinDr-CXR specific**: Formally document the SAET leakage as a case study
+2. Compare: DANN vs. metadata stripping vs. adversarial CAM guidance vs. batch norm strategies
+3. Cross-scanner generalization: Train Hospital A → Test Hospital B within VinDr
+4. Framework generalizable to other multi-center medical imaging datasets
 
-**Expected Contribution**:
-- First systematic study of metadata leakage mitigation in VinDr-CXR
-- Scanner-invariant model that generalizes across institutions
-- Generalizable framework for medical imaging dataset debiasing
-
-**Feasibility**: ⭐⭐⭐⭐ (Good — DANN is well-established)
-**Impact**: ⭐⭐⭐⭐⭐ (Very High — addresses critical clinical deployment concern)
-**Timeline**: 8–12 weeks
+**Updated Assessment**: Publishable — the VinDr-specific SAET leakage has never been formally addressed in a publication. Strong case study narrative.
 
 ---
 
-## Priority Ranking for Publication
+## Updated Priority Ranking
 
-| Rank | Proposal | Venue Tier | Novelty | Feasibility | Time | Recommended Priority |
-|---|---|---|---|---|---|---|
-| 🥇 | **P3: Foundation Model (GroundingDINO+SAM2)** | Q1 / Top Conference | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 10–14 wk | **Start first** — trending topic, high impact |
-| 🥈 | **P5: Multi-Rater Uncertainty** | Q1 / Top Conference | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 12–16 wk | **Start in parallel** — novel research contribution |
-| 🥉 | **P7: Metadata Leakage Mitigation** | Q1 / Q2 Journal | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 8–12 wk | **Quick win** — addresses documented critical issue |
-| 4 | **P2: Transformer Detection (RT-DETR)** | Q1 Journal / Workshop | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 8–12 wk | Strong standalone or combined with P1 |
-| 5 | **P1: Modern YOLO Benchmark** | Q2/Q3 Journal | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 6–8 wk | Easiest first paper; build codebase for other proposals |
-| 6 | **P6: Active Learning** | Q1/Q2 Journal | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 10–14 wk | Practical clinical contribution |
-| 7 | **P4: Edge Deployment + KD** | Q2 Journal | ⭐⭐⭐ | ⭐⭐⭐⭐ | 10–12 wk | Depends on having strong teacher models (from P1/P2) |
+| Rank | Proposal | Novelty Risk | Why This Rank |
+|---|---|---|---|
+| 🥇 | **P6: Active Learning for CXR Detection** | ✅ LOW | Genuinely underexplored; no prior AL work for CXR bbox detection; high clinical value |
+| 🥈 | **P2: RT-DETR/Co-DETR on VinDr-CXR** | ✅ LOW | No DETR on VinDr-CXR; clear first-mover advantage; NMS-free advantage for noisy labels |
+| 🥉 | **P5: Multi-Rater Bbox Uncertainty** | ⚠️ MED | Classification uncertainty exists; bbox-level uncertainty is novel; high-impact venue potential |
+| 4 | **P7: SAET Leakage Mitigation** | ⚠️ MED | VinDr-specific case study; never formally published; quick paper with strong narrative |
+| 5 | **P4: Detection KD for Edge** | ⚠️ MED | Classification KD exists; detection KD is gap; needs real hardware benchmarks |
+| 6 | **P3: Foundation Model Few-Shot** | ⚠️ MED | Pipeline exists; needs label-efficiency + prompt engineering angle to differentiate |
+| 7 | **P1: YOLO Benchmark + Rater-Aware** | ⚠️ MED | YOLO-CXR already published; rater-aware angle is novel but incremental |
 
 ---
 
-## Recommended Execution Strategy
+## Recommended Execution Strategy (Revised)
 
 ```
-Phase 1 (Weeks 1–8): Foundation Building
-├── P1: Modern YOLO Benchmark → builds reusable codebase
-├── P7: Metadata Leakage study → quick independent paper
-└── Setup: data pipelines, evaluation framework
+Phase 1 (Weeks 1–8): Strongest Novelty First
+├── P6: Active Learning for CXR Detection → HIGHEST novelty, builds evaluation framework
+├── P2: RT-DETR on VinDr-CXR → First DETR on this dataset, reusable pipeline
+└── P7: SAET Leakage Case Study → Quick standalone paper
 
-Phase 2 (Weeks 6–14): Core Research
-├── P3: GroundingDINO + SAM2 → highest impact paper
-├── P2: RT-DETR adaptation → reuses Phase 1 infrastructure
-└── P5: Multi-Rater Uncertainty → parallel novel research
+Phase 2 (Weeks 6–14): Novel Methodology
+├── P5: Multi-Rater Bbox Uncertainty → Novel research contribution
+├── P4: Detection KD → Edge deployment paper
+└── Leverage models from Phase 1 as teachers/baselines
 
-Phase 3 (Weeks 12–20): Advanced Topics
-├── P6: Active Learning → builds on Phase 1–2 models
-└── P4: Edge Deployment → distills best models from above
+Phase 3 (Weeks 12–20): Extended Studies
+├── P3: Foundation Model Few-Shot → Uses Phase 1 baselines for comparison
+└── P1: Rater-Aware YOLO → Combines with P5 uncertainty framework
 ```
 
-> **Combined Paper Strategy**: Proposals P1 + P2 can be merged into a single comprehensive benchmark paper comparing CNN-based (YOLO family) vs. Transformer-based (DETR family) detectors, significantly strengthening the contribution for a Q1 journal.
+> [!TIP]
+> **Strongest publication candidates (lowest risk, highest novelty)**:
+> - **P6** (Active Learning for Detection) — genuinely unexplored
+> - **P2** (DETR on VinDr-CXR) — clear first-mover advantage
+> 
+> **Combined paper opportunity**: P2 + P5 → "Uncertainty-Aware Transformer Detection with Multi-Rater Calibration on VinDr-CXR" — this would be a very strong Medical Image Analysis submission.
