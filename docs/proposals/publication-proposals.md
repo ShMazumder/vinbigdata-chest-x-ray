@@ -10,6 +10,74 @@
 
 ---
 
+# 🚀 P0 (ACTIVE): YOLO26 + Measured Explanation Faithfulness on VinDr-CXR
+
+> [!IMPORTANT]
+> **This is the proposal currently being executed.** Everything below P0 is the original journal-oriented portfolio and remains valid for later cycles. P0 is a conference-scoped paper written against a hard 12-day deadline; it is deliberately smaller than P1–P7.
+>
+> **Full schedule, compute budget, protocol and kill criteria: [`iccit-2026-execution-plan.md`](./iccit-2026-execution-plan.md)**
+
+**🎯 Target Venue**: **ICCIT 2026** (29th Intl. Conference on Computer and Information Technology, IEEE Bangladesh Section)
+**📅 Deadline**: **July 31, 2026** · Notification Oct 15 · Conference Dec 18–20, Cox's Bazar
+**💻 Compute**: Kaggle 2× T4
+**Novelty Risk**: ⚠️ **MEDIUM** — benchmark half is crowded; XAI half is the contribution
+
+### Why this exists as a separate proposal
+
+The venue analysis changed the problem. P1–P7 were scoped for journals (Medical Image Analysis, IEEE TMI, JBHI) with months of compute. ICCIT is a 12-day window on 2× T4. **Tier must match tier**: P6 and P5 are journal-grade and should not be burned on a regional conference; a well-scoped conference paper is the right instrument here.
+
+P0 is the defensible remnant of **P1** — which verification rated ❌ HIGH risk because ≥5 YOLO-family works now exist on VinDr. P1 is not resurrected; its benchmark framing is still dead. What survives is the combination below.
+
+### The claim
+
+> Train YOLOv8s / YOLO11s / YOLO26s on VinDr-CXR 14-class detection under identical conditions, then evaluate **explanation faithfulness measured against radiologist bounding boxes** — not just detection accuracy.
+
+### Why it is defensible
+
+1. **VinDr has ground-truth boxes.** Most CXR-XAI work uses NIH ChestX-ray14, which has none, so it can only show qualitative heatmaps. Boxes turn saliency into a *metric*: pointing game, energy-based pointing game, CAM–box IoU, deletion/insertion AUC.
+2. **YOLO26 is genuinely new** (Ultralytics, released Jan 14 2026). Its **STAL** (Small-Target-Aware Label Assignment) maps onto VinDr's small-target profile — nodule/mass 39.69% small, calcification 17.67%. Its **native NMS-free** head maps onto this dataset's unsettled bbox-fusion problem. Hypothesis, not just "we ran the new model."
+3. **Axis B ties the halves together**: does NMS-free produce *more faithful* explanations than NMS-based? Without this the paper is two experiments stapled together.
+
+**Ranked claims** — lead with #2, it has the longest shelf life:
+
+| | Claim | Strength |
+|---|---|---|
+| 1 | First YOLO26 evaluation on VinDr-CXR | Real, but shelf life ~months |
+| 2 | First **quantified** explanation-faithfulness study on VinDr detection | **Lead with this** |
+| 3 | First controlled v8/v11/YOLO26 comparison, identical settings | Weakest — ≥5 YOLO works already exist here |
+
+### Hard constraints
+
+> [!WARNING]
+> **Do not claim SOTA.** Published bar: RT-DETR **45.3** mAP@0.5, YOLOv11-MFF **41.5**, YOLO-CXR **0.338**. A 512px `s`-scale model at 40 epochs lands below all of them. Frame as controlled comparison + explainability audit. A SOTA claim landing at 0.25 kills the paper.
+
+> [!CAUTION]
+> **The failure mode**: "we ran three YOLOs and made heatmaps" is a course project — precisely what the vendored `tariqshaban` repo already is. The measured saliency evaluation is the whole difference. **If schedule slips, cut a model, never cut the XAI metrics.**
+
+**Compute enabler**: train on positive images only (~4.4K of 15K), the established protocol on this dataset (`sunghyunjun` did the same). ~3.4× epoch-time reduction; 3 models ≈ 6 h on one T4.
+
+### Closest prior work
+
+| Work | Overlap | Gap exploited |
+|---|---|---|
+| **MASR-DNet** (SSRN preprint, Apr 2026) | YOLO-style detector, VinDr | **Cardiomegaly only — 1 class. No XAI.** |
+| **YOLO-CXR** (IEEE Access) | YOLOv8s variant, 0.338 | No version comparison, no XAI |
+| **YOLOv11-MFF** (PLOS ONE 2025) | YOLOv11 variant, 0.415 | Single architecture, no XAI |
+| **RT-DETR on VinBigData** (IRBM 2025) | 45.3 mAP | Transformer, no XAI |
+| **Sensitivity-Oriented YOLOv11** (2026) | YOLOv11 variant | No YOLO26, no XAI |
+
+### Relationship to the rest of the portfolio
+
+- **Replaces P1** as the executable form of the YOLO line. P1's rater-aware half still belongs in **P5**.
+- **Produces reusable assets**: a working VinDr detection pipeline, fused labels, a frozen evaluation protocol. That is the missing **Phase 0** every other proposal depends on. Executing P0 de-risks P5, P6 and P4 regardless of whether it is accepted.
+- **Does not consume** P5 or P6 novelty.
+
+### Venue note
+
+**OMLET 2026 is not an option** — it was held June 12–14, 2026, already past. **COMPAS 2026** shares the same July 31 deadline (Oct 9–10, Dhaka University, 3rd edition) and is the fallback, but ICCIT's multiple-submission policy forbids parallel submission. Pick one; ICCIT is the stronger venue (29th edition, longest-running IEEE-sponsored conference in Bangladesh).
+
+---
+
 ## Overview: Gap Analysis
 
 Based on the comparative analysis of 25+ existing works **and deep search verification (July 2026)**, the following table shows the updated status of each proposed gap:

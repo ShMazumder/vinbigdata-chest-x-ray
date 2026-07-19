@@ -2,6 +2,16 @@
 
 *Last updated: July 19, 2026 — Deep search novelty verification complete*
 
+> [!IMPORTANT]
+> **This document is now partly stale.** Independent verification (July 2026) refuted the core novelty claims of **P2** and **P1**, and the project has since committed to a new conference-scoped proposal, **P0**.
+>
+> Current sources of truth:
+> - **[verification-report.md](./analysis/verification-report.md)** — what was checked, what failed
+> - **[publication-proposals.md](./proposals/publication-proposals.md)** — P0 (active) + revised P1–P7 ranking
+> - **[iccit-2026-execution-plan.md](./proposals/iccit-2026-execution-plan.md)** — active 12-day plan, ICCIT 2026 deadline **July 31, 2026**
+>
+> The P1 row in the table below ("Add rater-aware training as primary contribution") is superseded: P1 is now rated ❌ HIGH and its rater-aware half moved to P5.
+
 ---
 
 ## ✅ Completed Tasks

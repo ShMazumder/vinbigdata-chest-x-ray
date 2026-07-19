@@ -18,6 +18,17 @@
 | 6 | **YOLOv11-MFF** | Guan, L. et al. | 2025 | PLOS ONE | YOLOv11 + Frequency-Adaptive Hybrid Gate (FAHG) + Multi-Scale Parallel Large Conv (MSPLC) + Feature Fusion (FF) | VinDr-CXR | Multi-scale | Class-weighted resampling | FAHG, MSPLC, FF modules | Precision, Recall, mAP@0.5, mAP@0.5:0.95 | P: **48.2%**, R: **42.5%**, mAP@0.5: **41.5%**, mAP@0.5:0.95: **22.6%** | ❌ | ~3–5 |
 | 7 | **GroundingDINO-Med** | Musgrove, Kyle | 2024 | GitHub | GroundingDINO + Swin-T Backbone | VinDr-CXR (ODVG format) | Variable | Custom thresholding | Open-vocabulary prompts | Custom bbox thresholds | Fine-tuned on 14 thoracic classes | ✅ GitHub | N/A |
 | 8 | **Stanford CS230 Benchmarks** | Stanford Research Team | 2021 | CS230 Report | YOLO Framework | VinDr-CXR | High-res | — | Oversampling + heavy color-shift augmentation | mAP@0.4 | Highly competitive mAP | ❌ | N/A |
+| 26 | **MASR-DNet** ✅*verified* | Doan, V.T.; Hsu, H-C.; Jonnagaddala, J.; Pham, T.T.T.; Nguyen, D.H.; Dai, H-J. | 2026 | SSRN preprint (19pp, posted 26 Apr 2026) — **not peer reviewed** | YOLO-style one-stage + GADC (Geometric Adaptive Deformable Conv) + EASPP + MSRF (Multi-Scale Refinement) + HSA (Hierarchical Spatial Attention); ASCL loss | AI CUP 2025 (aortic valve CT) + **VinDr-CXR — cardiomegaly only, 1 class** | Not stated in abstract | Not stated | ASCL for foreground/background discriminability under class imbalance | Not stated in abstract | "Competitive performance" + low parameter count (no figures in abstract) | ✅ [GitHub](https://github.com/thinhdoanvu/MASR-DNet) | 0 (46 downloads, 93 abstract views as of Jul 2026) |
+
+> [!NOTE]
+> **On MASR-DNet (#26).** Added July 2026 during verification — it was published while the original gap analysis was being written. Closest neighbour to the active **P0** proposal, so worth stating the boundary precisely:
+>
+> - **It uses VinDr for cardiomegaly localization only — a single class**, not the 14-class detection benchmark. Cardiomegaly is among the easiest classes on this dataset (large, high-prevalence); the paper's own framing cites "diffuse cardiac boundaries," not small-target difficulty. It therefore says nothing about nodule/mass (39.69% small targets) or calcification (17.67%).
+> - **No XAI/explainability component.**
+> - **No YOLO version comparison** — a single custom architecture, not a benchmark.
+> - Primary dataset is AI CUP 2025 (aortic valve CT); VinDr is secondary validation.
+>
+> **Weight appropriately**: real prior art, low authority — SSRN preprint, not peer reviewed, 0 citations. Must be cited in related work; should not be over-deferred to. Notable that the authors had a 14-class dataset and reported one class.
 
 ---
 
@@ -114,6 +125,7 @@
 | **VinDr-CXR-VQA** | Limited to 4,394 images; question template diversity constrained | Spatial grounding + clinical reasoning VQA reduces hallucinations | Scale to larger CXR datasets; multi-language support |
 | **ConvNeXtV2-ViT** | Cross-center generalization gap remains; OOD detection is lightweight | Hybrid architectures with ontology-driven explainability achieve clinical-grade performance | Deeper ontological reasoning; prospective clinical validation |
 | **CXR-LT 2026** | Zero-shot rare disease detection still challenging; multi-center domain shift | Vision-language pre-training helps but doesn't solve domain shift | Better domain adaptation; continual learning for emerging diseases |
+| **MASR-DNet** | Not peer reviewed (SSRN preprint); VinDr used for **1 class only** (cardiomegaly), so 14-class generalization unshown; no explainability; abstract reports no numeric metrics | Deformable + multi-scale attention modules on a YOLO-style backbone give competitive detection at low parameter count across CT and CXR | Extend to full 14-class VinDr detection; validate on small-target classes; add interpretability |
 
 ---
 
