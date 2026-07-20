@@ -22,6 +22,27 @@ CHANGELOG
             (e.g. ILD in both lungs, IoU ~0) are unaffected by the change.
             No retraining implied; nothing had been trained yet.
 2026-07-20  Kaggle dataset paths confirmed against a live run.
+2026-07-20  FUSION_IOU 0.4 -> 0.25, decided by measured sweep (not judgement):
+
+                thr    boxes  retained  dup_pairs  dup_images
+                0.25   21473     59.5%         58          56
+                0.30   21840     60.5%        413         346
+                0.40   22724     63.0%       1331         942
+                0.50   23948     66.3%       2655        1576
+                floor (all 3-rater groups merged): ~12032
+
+            Duplicates roughly halve per step while retention moves only 6.8
+            points across the entire range -- the threshold is almost purely
+            trading duplicate labels for nothing. 0.4 still left 1331 duplicate
+            pairs across 942 images (21% of the dataset), visually confirmed as
+            8x-nested Pulmonary fibrosis boxes on one image and 3x-stacked
+            Pleural effusion on another. 0.25 removes 96% of those for 3.5
+            points of retention and stays 78% above the collapse floor.
+
+            Residual risk: at 0.25, two genuinely distinct adjacent lesions
+            (Nodule/Mass, Calcification) could merge. Watch those two classes
+            in fusion_report on the next run -- if they crater relative to the
+            0.4 baseline (70.9% and 75.5%), reconsider a per-class threshold.
 """
 
 from pathlib import Path
@@ -105,7 +126,7 @@ MODELS = {
 # labeling, not measurement. This remains unsettled -- do not present either
 # choice as established.
 FUSION_METHOD = "wbf"      # "wbf" | "nms"
-FUSION_IOU = 0.4           # lowered from 0.5 -- see CHANGELOG 2026-07-20
+FUSION_IOU = 0.25          # measured sweep, not judgement -- see CHANGELOG
 FUSION_SKIP_BOX_THR = 0.0  # keep all boxes; raters have no confidence scores
 
 # Threshold for flagging surviving near-duplicates in the post-fusion audit.

@@ -74,9 +74,23 @@ Raters agree on *whether* a finding exists far more than on *where it ends*. Pos
 | 44–47% | Cardiomegaly, Aortic enlargement | Anatomically anchored — raters agree where the heart is, boxes merge |
 | 72–84% | Pleural thickening, Other lesion, Atelectasis, Lung Opacity, Pulmonary fibrosis, ILD | Diffuse extent — raters disagree, boxes fail to merge |
 
-At IoU 0.5 this produced **systematic under-merging**: one finding surviving as 2–4 separate ground-truth boxes. Measured example — two rater boxes on a single pleural thickening had IoU 0.38, just below the cut. Visual inspection confirmed stacked duplicates for Pulmonary fibrosis, Pleural effusion, Pleural thickening and Nodule/Mass.
+At IoU 0.5 this produced **systematic under-merging**: one finding surviving as 2–4 separate ground-truth boxes. Measured example — two rater boxes on a single pleural thickening had IoU 0.38, just below the cut.
 
-Fusion threshold lowered to **IoU 0.4** (`config.py` CHANGELOG 2026-07-20). Spatially distinct same-class lesions (ILD in both lungs, IoU ≈ 0) are unaffected.
+**Threshold selected by measured sweep, not judgement:**
+
+| IoU thr | fused boxes | retained | duplicate pairs | affected images |
+|---|---|---|---|---|
+| **0.25** ← chosen | **21,473** | **59.5%** | **58** | 56 |
+| 0.30 | 21,840 | 60.5% | 413 | 346 |
+| 0.40 | 22,724 | 63.0% | 1,331 | 942 |
+| 0.50 | 23,948 | 66.3% | 2,655 | 1,576 |
+| *floor if all 3-rater groups merged* | *~12,032* | *33.3%* | — | — |
+
+Duplicate pairs roughly **halve per step while retention moves only 6.8 points across the entire range** — the threshold trades duplicate labels for almost nothing. Two intermediate values were rejected on evidence: 0.5 left 2,655 duplicate pairs, and 0.4 still left 1,331 across 21% of images (visually confirmed as 8×-nested Pulmonary fibrosis on one image, 3×-stacked Pleural effusion on another).
+
+Final: **WBF @ IoU 0.25** (`config.py` CHANGELOG 2026-07-20). Spatially distinct same-class lesions (ILD in both lungs, IoU ≈ 0) are unaffected at any threshold.
+
+**Residual risk**: at 0.25, two genuinely distinct *adjacent* lesions could merge. Nodule/Mass and Calcification are the exposed classes — baselines at 0.4 were 70.9% and 75.5% retention. If they crater, the fix is a per-class threshold rather than a lower global one.
 
 > The principled fix is a **consensus rule** — require ≥2 of 3 raters to agree before a box becomes ground truth. That merges *and* filters single-rater spurious findings, which threshold tuning does not address: currently any single rater's box becomes ground truth. Out of scope for the ICCIT deadline; natural bridge to P5.
 
@@ -128,7 +142,8 @@ Heavy skew toward "No Finding"; rare pathologies severely underrepresented.
 | Decision | Recommendation |
 |---|---|
 | BBox fusion | ⚠️ **Unsettled.** The `sunghyunjun` ablation has ZFTurbo NMS winning on CV (0.4419 vs 0.4158) but WBF winning on private LB (0.185 vs 0.181); the author chose NMS by reasoning about test labeling, not measurement. Do not treat either as established. |
-| Fusion IoU threshold | **0.4, not 0.5** — 0.5 systematically under-merges diffuse findings (see §2b) |
+| Fusion IoU threshold | **0.25** — selected by measured duplicate sweep, not judgement (see §2b). 0.5 and 0.4 both under-merge diffuse findings badly. |
+| Tail classes | Pneumothorax (~11) and Atelectasis (~24) test boxes — too few for stable per-class AP. Report with explicit *n* or aggregate. |
 | Image resolution | Larger = better mAP (limited by VRAM) |
 | Normal handling | Two-stage approach effective if threshold tuned |
 | Small objects | Multi-scale fusion critical |
