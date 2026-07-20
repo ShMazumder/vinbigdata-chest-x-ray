@@ -214,6 +214,33 @@ def find_data_yaml(search_root: Path | None = None) -> Path:
     return path
 
 
+def find_weights(search_root: Path | None = None) -> dict[str, str]:
+    """Locate trained best.pt files, wherever notebook 02's output mounted.
+
+    Returns {model_key: path}. Same rationale as find_data_yaml -- the mount
+    path depends on the notebook slug and is not knowable in advance.
+    """
+    roots = [search_root] if search_root else [KAGGLE_INPUT, WORK]
+    out: dict[str, str] = {}
+    for root in roots:
+        if not (root and root.exists()):
+            continue
+        for p in root.glob("**/weights/best.pt"):
+            run = p.parent.parent.name          # e.g. yolo26s_512_e40_seed0
+            key = run.split("_")[0]
+            if key in MODELS and key not in out:
+                out[key] = str(p)
+
+    if not out:
+        raise FileNotFoundError(
+            f"no best.pt under {roots}. In notebook 03: Add Data -> "
+            f"'Notebook Output Files' -> 'Your Work' -> notebook 02."
+        )
+    for k in MODELS:
+        print(f"[config] {k}: {out.get(k, 'MISSING')}")
+    return out
+
+
 def as_dict() -> dict:
     """Flat snapshot for RunLogger / the paper's reproducibility statement."""
     return {
