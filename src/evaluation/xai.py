@@ -122,6 +122,45 @@ def verify_cam_resolution(yolo_model, imgsz: int = 512, scale: str = "p3") -> No
               f"attribution -- prefer scale='p3'")
 
 
+def _wrap_for_cam(detection_model):
+    """Adapt an Ultralytics DetectionModel to what pytorch-grad-cam expects.
+
+    pytorch-grad-cam assumes a classifier: forward() returns a (B, C) tensor,
+    and it calls `outputs.cpu()` plus `np.argmax(..., axis=-1)`. Ultralytics
+    returns a tuple (predictions, feature maps), so the raw model raises
+    `'tuple' object has no attribute 'cpu'`.
+
+    This unwraps to the prediction tensor and reduces over anchors/spatial
+    positions to give (B, C).
+
+    For EigenCAM the reduction is irrelevant -- it is non-gradient, computing
+    the first principal component of the activations, so no target is used.
+    For GradCAM++ it defines the scalar being differentiated: the peak
+    response of the strongest channel.
+
+    Module identity is unchanged by wrapping, so hooks registered on
+    target_layers still fire.
+    """
+    import torch.nn as nn
+
+    class _CamAdapter(nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x):
+            out = self.model(x)
+            while isinstance(out, (list, tuple)):     # (preds, feats) -> preds
+                out = out[0]
+            if out.ndim == 3:        # (B, 4+nc, anchors) -> (B, 4+nc)
+                return out.amax(dim=-1)
+            if out.ndim == 4:        # (B, C, H, W)     -> (B, C)
+                return out.amax(dim=(-2, -1))
+            return out
+
+    return _CamAdapter(detection_model)
+
+
 def compute_cam(yolo_model, image: np.ndarray, method: str = "eigencam",
                 target_layer=None, imgsz: int = 512) -> np.ndarray:
     """CAM for one image, normalized to [0,1] at (imgsz, imgsz).
@@ -144,10 +183,12 @@ def compute_cam(yolo_model, image: np.ndarray, method: str = "eigencam",
     if img.ndim == 2:
         img = np.stack([img] * 3, -1)
     tensor = torch.from_numpy(img).float().permute(2, 0, 1)[None] / 255.0
-    if torch.cuda.is_available():
-        tensor = tensor.cuda()
 
-    cam = cls(model=yolo_model.model, target_layers=layers)
+    net = yolo_model.model.eval()
+    device = next(net.parameters()).device
+    tensor = tensor.to(device)
+
+    cam = cls(model=_wrap_for_cam(net), target_layers=layers)
     grayscale = cam(input_tensor=tensor, targets=None)[0]
 
     rng = grayscale.max() - grayscale.min()
