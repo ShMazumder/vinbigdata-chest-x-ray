@@ -170,6 +170,50 @@ CAM_PERCENTILE = 90          # threshold for CAM-vs-box IoU
 DELETION_STEPS = 20          # deletion/insertion AUC granularity
 
 
+def find_data_yaml(search_root: Path | None = None) -> Path:
+    """Locate the prepared dataset's data.yaml under /kaggle/input.
+
+    Notebook outputs mount at a path derived from the notebook slug, which is
+    not knowable in advance. Rather than hardcode a guess, find it.
+
+    Also validates that the images are real files, not dangling symlinks -- a
+    notebook-output mount can carry links that resolve in the producing session
+    and break in the consuming one.
+    """
+    roots = [search_root] if search_root else [KAGGLE_INPUT, WORK]
+    found = []
+    for root in roots:
+        if root and root.exists():
+            found.extend(root.glob("*/data.yaml"))
+            found.extend(root.glob("*/*/data.yaml"))
+
+    if not found:
+        raise FileNotFoundError(
+            f"no data.yaml under {roots}. In notebook 02: Add Data -> "
+            f"'Notebook Output Files' tab -> filter 'Your Work' -> notebook 01. "
+            f"Note this requires notebook 01 to have been committed with "
+            f"'Save & Run All', not Quick Save."
+        )
+    if len(found) > 1:
+        print(f"[config] multiple data.yaml found, using first: {found}")
+
+    path = found[0]
+    imgs = list((path.parent / "images" / "train").glob("*.jpg"))
+    if not imgs:
+        raise FileNotFoundError(f"{path.parent}/images/train is empty")
+    n_broken = sum(1 for p in imgs[:200] if not p.exists())
+    if n_broken:
+        raise RuntimeError(
+            f"{n_broken}/200 sampled images are broken links. Notebook 01 must "
+            f"run to_yolo_labels with copy_images=True (now the default) and be "
+            f"re-committed."
+        )
+    size_gb = sum(p.stat().st_size for p in imgs[:200]) / 200 * len(imgs) / 1e9
+    print(f"[config] data.yaml -> {path}")
+    print(f"[config] {len(imgs)} train images, ~{size_gb:.2f} GB")
+    return path
+
+
 def as_dict() -> dict:
     """Flat snapshot for RunLogger / the paper's reproducibility statement."""
     return {
