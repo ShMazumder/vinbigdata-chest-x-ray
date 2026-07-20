@@ -214,14 +214,22 @@ PUBLISHED_BASELINES = {
 # XAI
 # --------------------------------------------------------------------------
 
-XAI_METHODS = ["eigencam", "gradcam++"]   # D-RISE optional, only if ahead on D9
+# EigenCAM only. GradCAM++ was dropped deliberately, not because it crashed
+# (that was fixable -- Ultralytics freezes params on checkpoint load, so no
+# autograd graph is built) but because its TARGET is ill-defined here.
+# GradCAM++ differentiates a class logit; a detection head has no single
+# logit, so the scalar would have to be something arbitrary like "peak
+# response of the strongest channel over all anchors". Not defensible under
+# review. EigenCAM needs no target at all -- it is the first principal
+# component of the activations.
+XAI_METHODS = ["eigencam"]
 
-# Which neck feature map to attribute from. "p3" = stride 8 = 64x64 grid at
-# 512px input (~8 px per cell). Chosen because Axis A is about small lesions:
-# P5 (stride 32) gives 16x16, i.e. 32 px per cell, and many Calcification
-# boxes are smaller than a single cell -- box-overlap metrics on a map that
-# coarse measure nothing. See xai.pick_target_layer docstring.
-XAI_SCALE = "p3"                          # "p3" | "p4" | "p5" | "all"
+# Robustness axis is SCALE, not method. Running EigenCAM at both P3 (stride 8,
+# 64x64) and P5 (stride 32, 16x16) directly probes the confound that matters:
+# is low small-lesion faithfulness a real finding, or an artifact of
+# attribution resolution? Same question as 512 vs 640 input, answered cheaply.
+XAI_SCALES = ["p3", "p5"]
+XAI_SCALE = "p3"                          # primary, used for headline numbers
 XAI_N_IMAGES = None          # None = whole test split; set an int to subsample
 CAM_PERCENTILE = 90          # threshold for CAM-vs-box IoU
 DELETION_STEPS = 20          # deletion/insertion AUC granularity
