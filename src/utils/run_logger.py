@@ -56,31 +56,41 @@ def _safe(fn, default=None):
         return default
 
 
-def capture_gpu() -> dict[str, Any]:
-    """Hardware fingerprint. Compute capability is the clean P100/T4 discriminator.
+# PyTorch dropped Pascal (sm_60) support. Current builds require sm_70+.
+# Kaggle's P100 is sm_60 and WILL NOT TRAIN -- it fails or falls back to CPU.
+# Verified against a live Kaggle session 2026-07-20.
+MIN_COMPUTE_CAPABILITY = (7, 0)
 
-    P100 (Pascal GP100) -> 6.0, 16 GB HBM2, 732 GB/s, NO tensor cores
-    T4   (Turing TU104) -> 7.5, 16 GB GDDR6, 320 GB/s, tensor cores, 70 W
+
+def capture_gpu(strict: bool = False) -> dict[str, Any]:
+    """Hardware fingerprint, with a supported-architecture check.
+
+    T4   (Turing TU104) -> sm_75, 16 GB GDDR6, 320 GB/s, tensor cores.  USE THIS.
+    P100 (Pascal GP100) -> sm_60, 16 GB HBM2, 732 GB/s, no tensor cores.
+                           Faster on paper. Unsupported by PyTorch. Unusable.
+
+    strict=True raises rather than warns -- use it at the top of a training
+    notebook so an unusable accelerator fails in seconds, not after a session
+    of confusing CPU-speed epochs.
     """
     import torch
 
     if not torch.cuda.is_available():
-        return {"gpu_available": False}
+        info = {"gpu_available": False, "gpu_supported": False}
+        if strict:
+            raise RuntimeError("no CUDA device -- check the notebook accelerator setting")
+        return info
 
     cc = torch.cuda.get_device_capability(0)
     props = torch.cuda.get_device_properties(0)
 
-    name = props.name
-    if cc == (6, 0):
-        family = "P100"
-    elif cc == (7, 5):
-        family = "T4"
-    else:
-        family = name
+    family = {(6, 0): "P100", (7, 5): "T4", (8, 0): "A100"}.get(cc, props.name)
+    supported = cc >= MIN_COMPUTE_CAPABILITY
 
-    return {
+    info = {
         "gpu_available": True,
-        "gpu_name": name,
+        "gpu_supported": supported,
+        "gpu_name": props.name,
         "gpu_family": family,
         "compute_capability": f"{cc[0]}.{cc[1]}",
         "has_tensor_cores": cc[0] >= 7,
@@ -88,6 +98,22 @@ def capture_gpu() -> dict[str, Any]:
         "n_gpus_visible": torch.cuda.device_count(),
         "multi_processor_count": props.multi_processor_count,
     }
+
+    if not supported:
+        msg = (
+            f"\n{'='*70}\n"
+            f"UNUSABLE GPU: {props.name} is sm_{cc[0]}{cc[1]}, below PyTorch's "
+            f"sm_{MIN_COMPUTE_CAPABILITY[0]}{MIN_COMPUTE_CAPABILITY[1]} floor.\n"
+            f"Training will fail or silently run on CPU.\n\n"
+            f"FIX: notebook settings -> Accelerator -> 'GPU T4 x2' (sm_75).\n"
+            f"Keep device=0; a single T4 is correct. Do not attempt DDP.\n"
+            f"{'='*70}"
+        )
+        if strict:
+            raise RuntimeError(msg)
+        print(msg)
+
+    return info
 
 
 def capture_env() -> dict[str, Any]:

@@ -22,6 +22,14 @@ CHANGELOG
             (e.g. ILD in both lungs, IoU ~0) are unaffected by the change.
             No retraining implied; nothing had been trained yet.
 2026-07-20  Kaggle dataset paths confirmed against a live run.
+2026-07-20  GPU: use T4, NOT P100. P100 is sm_60; current PyTorch requires
+            sm_70+. Confirmed on a live Kaggle session -- P100 raises
+            "not compatible with the current PyTorch installation" and will
+            fail or fall back to CPU. The earlier P100 recommendation (based on
+            2.3x memory bandwidth and a 250W vs 70W power envelope) is void:
+            the card simply does not run. T4 is sm_75 and has tensor cores, so
+            AMP is genuinely faster there. Accelerator = "GPU T4 x2",
+            device=0, no DDP.
 2026-07-20  FUSION_IOU 0.4 -> 0.25, decided by measured sweep (not judgement):
 
                 thr    boxes  retained  dup_pairs  dup_images
@@ -107,8 +115,11 @@ SEED = 0
 IMGSZ = 512
 EPOCHS = 40
 BATCH = 16                 # <4 destroys mAP on this dataset (documented in ref)
-DEVICE = 0                 # single GPU. P100 preferred over single T4.
-AMP = True                 # P100 has 2x FP16 but no tensor cores -> smaller gain
+DEVICE = 0                 # single GPU. Accelerator MUST be "GPU T4 x2" --
+                           # P100 is sm_60 and unsupported by PyTorch (CHANGELOG).
+                           # Select T4 x2, use one card; DDP in notebooks is a
+                           # known time sink and saves ~2h at best.
+AMP = True                 # T4 has tensor cores -> real FP16 speedup. No bf16.
 WORKERS = 2                # Kaggle CPU is limited; >2 can starve
 
 MODELS = {

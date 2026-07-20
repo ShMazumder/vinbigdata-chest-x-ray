@@ -76,26 +76,36 @@ Decide once, now, and do not revisit mid-run. Protocol drift is the most common 
 > [!NOTE]
 > **Fusion caveat worth one sentence in the paper.** The vendored reference's own ablation shows WBF *winning* on private LB (0.185) while *losing* on CV (0.4158 vs 0.4419) — and the author chose NMS by reasoning about test labeling, not measurement. Note that this remains unsettled rather than inheriting it as fact. Cheap credibility.
 
-### 2.1 GPU Choice: P100 over a single T4
+### 2.1 GPU Choice: T4 — P100 is unusable
 
-Kaggle bills GPU sessions by **wall-clock, not per-GPU** — selecting `T4 x2` and using `device=0` burns identical quota while giving you strictly less card. So the real choice is single P100 vs single T4.
+> [!CAUTION]
+> **P100 does not work.** Verified on a live Kaggle session 2026-07-20:
+>
+> ```
+> Tesla P100-PCIE-16GB with CUDA capability sm_60 is not compatible with the
+> current PyTorch installation. The current PyTorch install supports CUDA
+> capabilities sm_70 sm_75 sm_80 sm_86 sm_90 sm_100 sm_120
+> ```
+>
+> PyTorch dropped Pascal. Training fails or silently falls back to CPU.
 
-| | P100 (Pascal GP100) | T4 (Turing TU104) |
+**Decision: Accelerator = `GPU T4 x2`, `device=0`, no DDP.**
+
+| | T4 (Turing TU104) | P100 (Pascal GP100) |
 |---|---|---|
-| Memory bandwidth | **732 GB/s** | 320 GB/s |
-| FP32 | 9.5 TFLOPS | 8.1 TFLOPS |
-| FP16 | 19 TFLOPS (2× rate, **no tensor cores**) | 65 TFLOPS (tensor cores) |
-| Power envelope | 250 W | **70 W** (throttles under sustained load) |
-| VRAM | 16 GB HBM2 | 16 GB GDDR6 |
+| Compute capability | **sm_75 — supported** | sm_60 — **below PyTorch's sm_70 floor** |
+| Tensor cores | **Yes** — real FP16 speedup | No |
+| Memory bandwidth | 320 GB/s | 732 GB/s |
+| FP32 | 8.1 TFLOPS | 9.5 TFLOPS |
+| Power envelope | 70 W (throttles) | 250 W |
 
-T4 wins on FP16 paper specs. Reality is closer: T4 is bandwidth-starved and power-capped, so it does not hold peak throughput across a 40-epoch run. **Expect P100 ≈ 1.0–1.3× a single T4 here.** Modest, but free, and one less thing to configure.
+P100 wins on bandwidth and power, which is why it looked like the better choice on paper. Irrelevant — it doesn't run. T4's tensor cores also mean `amp=True` delivers a genuine speedup, which P100 would not have.
 
-**Decision: P100, `device=0`.** Do not spend deadline time on 2×T4 DDP — notebook spawn failures are a known sink, best case saves ~2 h across three models, worst case eats a day.
+**Still don't attempt 2×T4 DDP.** Kaggle bills sessions by wall-clock, not per-GPU, so `T4 x2` with `device=0` costs the same quota as any other choice. Notebook DDP spawn failures are a known sink: best case ~2 h saved across three models, worst case a lost day.
 
-**AMP caveat**: P100 has 2× FP16 math but no tensor cores, so `amp=True` gains less than on Turing. If you hit NaN losses or gradient-scaler thrash, drop to FP32 — 9.5 TFLOPS is fine for `s`-scale at 512px and you have VRAM headroom.
+**AMP**: T4 has FP16 tensor cores but **no bf16**. Set `amp=True`, never `bf16`.
 
-> [!TIP]
-> This decision is worth ~20–40 min across the whole project. The positive-only subset decision is worth ~20 h. Do not over-optimize here.
+`capture_gpu(strict=True)` in `run_logger.py` now raises on any card below sm_70, so an unusable accelerator fails in seconds rather than after a session of CPU-speed epochs.
 
 ### 2.2 Run Logging — mandatory from run 1
 
