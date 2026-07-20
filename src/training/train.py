@@ -88,7 +88,19 @@ def train_one(
         print(f"[train] ⚠ overrides active: {overrides} -- not a protocol run")
     log.set_params(**params)
 
-    model = YOLO(C.MODELS[model_key])
+    # Resume must load last.pt itself. Passing resume=True to a freshly loaded
+    # pretrained checkpoint does not reliably continue the run -- Ultralytics
+    # resumes from the weights it was handed.
+    last = runs_dir / "ultralytics" / run_name / "weights" / "last.pt"
+    if resume:
+        if not last.exists():
+            raise FileNotFoundError(
+                f"resume=True but no checkpoint at {last}. Start fresh instead."
+            )
+        print(f"[train] resuming from {last}")
+        model = YOLO(str(last))
+    else:
+        model = YOLO(C.MODELS[model_key])
 
     train_kwargs = dict(
         data=str(data_yaml),
@@ -102,7 +114,12 @@ def train_one(
         project=str(runs_dir / "ultralytics"),
         name=run_name,
         exist_ok=True,
-        save_period=1,        # every epoch -- the 12h kill is not negotiable
+        # save_period=-1, NOT 1. last.pt and best.pt are written every epoch
+        # regardless, and resume reads last.pt -- so periodic epochN.pt files
+        # add nothing for recovery. At ~22 MB x 40 epochs x 9 runs they cost
+        # ~7.4 GB of /kaggle/working, which then also inflates the committed
+        # notebook output.
+        save_period=-1,
         resume=resume,
         val=True,
         plots=True,
