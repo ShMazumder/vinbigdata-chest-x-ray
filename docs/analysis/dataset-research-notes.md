@@ -45,10 +45,40 @@
 ### 1. Metadata Leakage (CRITICAL)
 Simple gradient-boosting on DICOM header metadata (age, sex, Source Application Entity Title / SAET) achieves high validation scores without analyzing pixels. SAET correlates strongly with normal vs. abnormal labels because different scanners were used at different institutions.
 
-### 2. Rater Imbalance (CRITICAL)
-- Radiologists R8, R9, R10: annotated vast majority of positive findings, smaller bounding boxes
-- Radiologists R1–R7: marked almost zero abnormalities, defaulting to "No Finding"
-- Models must handle rater-specific variance and label noise
+### 2. Rater Imbalance (CRITICAL) — ✅ *measured 2026-07-20, worse than previously stated*
+
+Counted directly from `train.csv` (positive boxes only, `class_id != 14`):
+
+| Rater | Boxes | Rater | Boxes |
+|---|---|---|---|
+| **R9** | 13,729 | R16 | 198 |
+| **R10** | 10,971 | R12 | 149 |
+| **R8** | 9,762 | R17 | 69 |
+| R14 | 324 | R2 | 3 |
+| R13 | 319 | R1, R3–R7 | **0** |
+| R15 | 315 | | |
+| R11 | 257 | **Total** | **36,096** |
+
+- **R8 + R9 + R10 = 34,462 / 36,096 = 95.5%** of all positive boxes
+- Only **11 of 17 raters** appear at all; R1 and R3–R7 contribute nothing, R2 contributes 3 boxes
+- The earlier phrasing ("R1–R7 marked almost zero") understated this — they are effectively absent
+
+**Implication for any multi-rater work (P5):** the "3 raters per image" framing is nominal, not effective. Fused labels are substantively three radiologists' opinions, not a 17-rater consensus. State in limitations.
+
+### 2b. Rater Disagreement on Box Extent — ✅ *measured 2026-07-20*
+
+Raters agree on *whether* a finding exists far more than on *where it ends*. Post-fusion retention at IoU 0.5 splits cleanly by finding type:
+
+| Retention | Classes | Interpretation |
+|---|---|---|
+| 44–47% | Cardiomegaly, Aortic enlargement | Anatomically anchored — raters agree where the heart is, boxes merge |
+| 72–84% | Pleural thickening, Other lesion, Atelectasis, Lung Opacity, Pulmonary fibrosis, ILD | Diffuse extent — raters disagree, boxes fail to merge |
+
+At IoU 0.5 this produced **systematic under-merging**: one finding surviving as 2–4 separate ground-truth boxes. Measured example — two rater boxes on a single pleural thickening had IoU 0.38, just below the cut. Visual inspection confirmed stacked duplicates for Pulmonary fibrosis, Pleural effusion, Pleural thickening and Nodule/Mass.
+
+Fusion threshold lowered to **IoU 0.4** (`config.py` CHANGELOG 2026-07-20). Spatially distinct same-class lesions (ILD in both lungs, IoU ≈ 0) are unaffected.
+
+> The principled fix is a **consensus rule** — require ≥2 of 3 raters to agree before a box becomes ground truth. That merges *and* filters single-rater spurious findings, which threshold tuning does not address: currently any single rater's box becomes ground truth. Out of scope for the ICCIT deadline; natural bridge to P5.
 
 ### 3. Overlapping Pathology Definitions
 Consolidation and infiltration have overlapping radiological definitions, creating label ambiguity.
@@ -97,7 +127,8 @@ Heavy skew toward "No Finding"; rare pathologies severely underrepresented.
 
 | Decision | Recommendation |
 |---|---|
-| BBox fusion | ZFTurbo NMS > torchvision NMS > WBF |
+| BBox fusion | ⚠️ **Unsettled.** The `sunghyunjun` ablation has ZFTurbo NMS winning on CV (0.4419 vs 0.4158) but WBF winning on private LB (0.185 vs 0.181); the author chose NMS by reasoning about test labeling, not measurement. Do not treat either as established. |
+| Fusion IoU threshold | **0.4, not 0.5** — 0.5 systematically under-merges diffuse findings (see §2b) |
 | Image resolution | Larger = better mAP (limited by VRAM) |
 | Normal handling | Two-stage approach effective if threshold tuned |
 | Small objects | Multi-scale fusion critical |
