@@ -301,6 +301,24 @@ def _validate_dataset(path: Path) -> Path:
     return out
 
 
+def dataset_root(data_yaml: str | Path) -> Path:
+    """Where the images/ and labels/ trees actually live for a given data.yaml.
+
+    Not always the yaml's own parent. A yaml repaired by _validate_dataset()
+    sits in /kaggle/working while the data stays on the read-only mount, and
+    carries an explicit `path:` pointing back at it. Ultralytics uses the same
+    rule -- `path:` if present, else the yaml's directory.
+    """
+    p = Path(data_yaml)
+    for line in p.read_text().splitlines():
+        if line.strip().startswith("path:"):
+            declared = Path(line.split("path:", 1)[1].strip())
+            if declared.is_dir():
+                return declared
+            break
+    return p.parent
+
+
 def stage_dataset_local(data_yaml: Path, dest: Path | None = None) -> Path:
     """Copy the mounted dataset to local disk and return the new data.yaml.
 
@@ -311,26 +329,44 @@ def stage_dataset_local(data_yaml: Path, dest: Path | None = None) -> Path:
 
     Copy costs ~1 min once. Over 3 models x 40 epochs it pays for itself many
     times over.
+
+    Resolves the source via dataset_root(), NOT the yaml's parent -- a repaired
+    yaml lives in /kaggle/working while the data stays on the mount. Raises if
+    nothing was copied rather than leaving an empty staging directory behind.
     """
     import shutil
     import time
 
-    src_root = Path(data_yaml).parent
+    src_root = dataset_root(data_yaml)
     dest = Path(dest or WORK / "vindr_yolo_local")
 
-    if (dest / "images" / "train").is_dir():
-        n = len(list((dest / "images" / "train").glob("*.jpg")))
-        print(f"[config] already staged at {dest} ({n} train images)")
+    if src_root.resolve() == dest.resolve():
+        print(f"[config] already local at {dest}, nothing to stage")
+        return Path(data_yaml)
+
+    n_existing = len(list((dest / "images" / "train").glob("*.jpg")))
+    if n_existing:
+        print(f"[config] already staged at {dest} ({n_existing} train images)")
     else:
         t0 = time.time()
         print(f"[config] staging {src_root} -> {dest} ...")
+        copied = 0
         for split in ("train", "val", "test"):
             for kind in ("images", "labels"):
                 s, d = src_root / kind / split, dest / kind / split
-                if s.is_dir():
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-        print(f"[config] staged in {time.time() - t0:.0f}s")
+                if not s.is_dir():
+                    continue
+                shutil.copytree(s, d, dirs_exist_ok=True)
+                copied += len(list(d.iterdir()))
+        if copied == 0:
+            raise FileNotFoundError(
+                f"staged nothing from {src_root} -- expected images/<split> and "
+                f"labels/<split> subdirectories there. Check what "
+                f"dataset_root() resolved to."
+            )
+        print(f"[config] staged {copied} files in {time.time() - t0:.0f}s")
 
+    dest.mkdir(parents=True, exist_ok=True)
     names = "\n".join(f"  {i}: {c}" for i, c in enumerate(CLASSES))
     out = dest / "data.yaml"
     out.write_text(
