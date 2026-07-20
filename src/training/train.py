@@ -13,6 +13,7 @@ Resume-safe: Kaggle kills sessions at 12h. Checkpoints save every epoch and
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from .. import config as C
@@ -201,11 +202,18 @@ def train_all_seeds(
         print(f"\n{'#'*70}\n# SEED {s}  ({seeds.index(s)+1}/{len(seeds)})\n{'#'*70}")
         for key in models:
             run_name = f"{key}_{C.IMGSZ}_e{C.EPOCHS}_seed{s}"
-            done = Path(C.RUNS_DIR) / "ultralytics" / run_name / "weights" / "best.pt"
-            if done.exists():
+            run_dir = Path(C.RUNS_DIR) / "ultralytics" / run_name
+            # Completeness is measured by results.csv row count, NOT by best.pt
+            # existing -- Ultralytics rewrites best.pt every epoch, so a run
+            # killed midway leaves a loadable checkpoint that would otherwise
+            # be mistaken for a finished run and silently skipped.
+            if RunLogger.run_is_complete(run_dir, C.EPOCHS):
                 print(f"[skip] {run_name} already complete")
                 out[(key, s)] = {"status": "skipped"}
                 continue
+            if run_dir.exists():
+                print(f"[retrain] {run_name} exists but is INCOMPLETE -- redoing")
+                shutil.rmtree(run_dir, ignore_errors=True)
             try:
                 train_one(key, data_yaml, seed=s, use_wandb=use_wandb, **overrides)
                 out[(key, s)] = {"status": "ok"}
@@ -216,16 +224,25 @@ def train_all_seeds(
 
 
 def all_weights_by_seed(runs_dir: Path | None = None) -> dict:
-    """{(model_key, seed): path} for every completed run."""
+    """{(model_key, seed): path} for every COMPLETE run.
+
+    Completeness is verified, not assumed. An under-trained best.pt from an
+    interrupted run loads fine and would quietly drag down that model's mean.
+    """
     runs_dir = Path(runs_dir or C.RUNS_DIR)
-    out = {}
+    out, partial = {}, []
     for key in C.MODELS:
         for s in C.SEEDS:
             run_name = f"{key}_{C.IMGSZ}_e{C.EPOCHS}_seed{s}"
-            p = runs_dir / "ultralytics" / run_name / "weights" / "best.pt"
-            if p.exists():
-                out[(key, s)] = str(p)
-    print(f"[weights] {len(out)}/{len(C.MODELS)*len(C.SEEDS)} runs found")
+            run_dir = runs_dir / "ultralytics" / run_name
+            if RunLogger.run_is_complete(run_dir, C.EPOCHS):
+                out[(key, s)] = str(run_dir / "weights" / "best.pt")
+            elif run_dir.exists():
+                partial.append(run_name)
+
+    print(f"[weights] {len(out)}/{len(C.MODELS)*len(C.SEEDS)} complete runs")
+    if partial:
+        print(f"[weights] EXCLUDED {len(partial)} incomplete: {partial}")
     return out
 
 

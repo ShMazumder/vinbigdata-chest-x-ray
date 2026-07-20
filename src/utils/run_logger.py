@@ -285,6 +285,108 @@ class RunLogger:
     # -- read back ---------------------------------------------------------
 
     @staticmethod
+    def run_is_complete(run_dir, expected_epochs: int) -> bool:
+        """True only if training actually ran to completion.
+
+        `best.pt` existing is NOT sufficient -- Ultralytics rewrites it every
+        epoch, so a run killed at epoch 12 leaves a perfectly loadable
+        checkpoint that a naive existence check treats as finished. The
+        authoritative signal is the row count in results.csv.
+        """
+        run_dir = Path(run_dir)
+        if not (run_dir / "weights" / "best.pt").exists():
+            return False
+        csv_path = run_dir / "results.csv"
+        if not csv_path.exists():
+            return False
+        try:
+            with csv_path.open() as f:
+                n = sum(1 for _ in csv.reader(f)) - 1     # minus header
+            return n >= expected_epochs
+        except Exception:
+            return False
+
+    @staticmethod
+    def cleanup_incomplete(out_dir="runs", expected_epochs=None, dry_run=True):
+        """Delete partial run directories and their JSON records.
+
+        Partial runs are actively dangerous here: they carry a loadable but
+        under-trained best.pt, which silently poisons both the skip logic and
+        any evaluation that globs for weights.
+        """
+        import shutil
+
+        out_dir = Path(out_dir)
+        ult = out_dir / "ultralytics"
+        if expected_epochs is None:
+            from .. import config as C
+            expected_epochs = C.EPOCHS
+
+        removed, kept = [], []
+        for run_dir in sorted(p for p in ult.glob("*") if p.is_dir()):
+            if RunLogger.run_is_complete(run_dir, expected_epochs):
+                kept.append(run_dir.name)
+                continue
+            removed.append(run_dir.name)
+            if not dry_run:
+                shutil.rmtree(run_dir, ignore_errors=True)
+                (out_dir / f"{run_dir.name}.json").unlink(missing_ok=True)
+
+        # JSONs whose run directory is gone entirely (e.g. failed at setup).
+        orphans = [j for j in out_dir.glob("*.json")
+                   if j.stem != "eval_summary" and not (ult / j.stem).is_dir()]
+        for j in orphans:
+            removed.append(f"{j.name} (orphan record)")
+            if not dry_run:
+                j.unlink(missing_ok=True)
+
+        verb = "would remove" if dry_run else "removed"
+        print(f"complete ({len(kept)}): {kept}")
+        print(f"{verb} ({len(removed)}): {removed}")
+        if dry_run and removed:
+            print("\nre-run with dry_run=False to delete")
+        return {"kept": kept, "removed": removed}
+
+    @staticmethod
+    def rebuild_master(out_dir="runs", expected_epochs=None):
+        """Regenerate master_results.csv from the per-run JSONs.
+
+        Use after cleanup_incomplete(), or any time the CSV has accumulated
+        rows from failed attempts. The JSONs are the source of truth; the CSV
+        is a derived convenience.
+        """
+        out_dir = Path(out_dir)
+        if expected_epochs is None:
+            from .. import config as C
+            expected_epochs = C.EPOCHS
+
+        rows = []
+        for j in sorted(out_dir.glob("*.json")):
+            if j.stem == "eval_summary":
+                continue
+            try:
+                rec = json.loads(j.read_text())
+            except Exception as e:
+                print(f"  skip unreadable {j.name}: {e}")
+                continue
+            if rec.get("status") != "ok":
+                print(f"  skip {j.stem}: status={rec.get('status')}")
+                continue
+            run_dir = out_dir / "ultralytics" / j.stem
+            if not RunLogger.run_is_complete(run_dir, expected_epochs):
+                print(f"  skip {j.stem}: incomplete on disk")
+                continue
+            rows.append({k: rec.get(k, "") for k in CSV_FIELDS})
+
+        csv_path = out_dir / "master_results.csv"
+        with csv_path.open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+            w.writeheader()
+            w.writerows(rows)
+        print(f"\nwrote {csv_path} with {len(rows)} valid runs")
+        return csv_path
+
+    @staticmethod
     def master_table(out_dir: str = "runs"):
         """Load every run into a DataFrame. Use this to build the paper tables."""
         import pandas as pd
