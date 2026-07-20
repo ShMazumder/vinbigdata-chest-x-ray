@@ -136,28 +136,79 @@ def train_one(
 def train_all(
     data_yaml: Path,
     models: list[str] | None = None,
+    seed: int | None = None,
     use_wandb: bool = True,
     **overrides,
 ) -> dict:
-    """Sequential training of all three. Single GPU, one after another.
+    """Train every model at one seed. Sequential, single GPU.
 
-    Sequential not parallel: 16 GB holds one s-scale run comfortably at 512px,
-    and two concurrent runs would contend for bandwidth -- which is exactly the
-    resource P100 is chosen for.
+    Sequential not parallel: two concurrent runs would contend for the T4's
+    320 GB/s of bandwidth, and 16 GB holds one s-scale run comfortably.
     """
     models = models or list(C.MODELS)
     out = {}
     for i, key in enumerate(models, 1):
-        print(f"\n{'='*70}\n[{i}/{len(models)}] {key}\n{'='*70}")
+        print(f"\n{'='*70}\n[{i}/{len(models)}] {key} (seed={seed if seed is not None else C.SEED})\n{'='*70}")
         try:
             model, results = train_one(
-                key, data_yaml, use_wandb=use_wandb, **overrides
+                key, data_yaml, seed=seed, use_wandb=use_wandb, **overrides
             )
             out[key] = {"model": model, "results": results, "status": "ok"}
         except Exception as e:
-            # One model failing must not lose the other two.
+            # One model failing must not lose the others.
             print(f"[train_all] {key} failed, continuing: {e}")
             out[key] = {"status": "failed", "error": str(e)}
+    return out
+
+
+def train_all_seeds(
+    data_yaml: Path,
+    models: list[str] | None = None,
+    seeds: tuple[int, ...] | None = None,
+    use_wandb: bool = True,
+    **overrides,
+) -> dict:
+    """Full multi-seed protocol. This is what the paper reports.
+
+    Seeds are the OUTER loop deliberately: if the 12 h session cap kills the
+    run partway, you are left with complete seeds rather than a ragged matrix
+    where some models have more repeats than others. An unbalanced matrix
+    cannot be reported as mean±std without caveats.
+
+    Resumable -- already-finished runs are detected and skipped.
+    """
+    seeds = seeds or C.SEEDS
+    models = models or list(C.MODELS)
+    out = {}
+    for s in seeds:
+        print(f"\n{'#'*70}\n# SEED {s}  ({seeds.index(s)+1}/{len(seeds)})\n{'#'*70}")
+        for key in models:
+            run_name = f"{key}_{C.IMGSZ}_e{C.EPOCHS}_seed{s}"
+            done = Path(C.RUNS_DIR) / "ultralytics" / run_name / "weights" / "best.pt"
+            if done.exists():
+                print(f"[skip] {run_name} already complete")
+                out[(key, s)] = {"status": "skipped"}
+                continue
+            try:
+                train_one(key, data_yaml, seed=s, use_wandb=use_wandb, **overrides)
+                out[(key, s)] = {"status": "ok"}
+            except Exception as e:
+                print(f"[train_all_seeds] {run_name} failed, continuing: {e}")
+                out[(key, s)] = {"status": "failed", "error": str(e)}
+    return out
+
+
+def all_weights_by_seed(runs_dir: Path | None = None) -> dict:
+    """{(model_key, seed): path} for every completed run."""
+    runs_dir = Path(runs_dir or C.RUNS_DIR)
+    out = {}
+    for key in C.MODELS:
+        for s in C.SEEDS:
+            run_name = f"{key}_{C.IMGSZ}_e{C.EPOCHS}_seed{s}"
+            p = runs_dir / "ultralytics" / run_name / "weights" / "best.pt"
+            if p.exists():
+                out[(key, s)] = str(p)
+    print(f"[weights] {len(out)}/{len(C.MODELS)*len(C.SEEDS)} runs found")
     return out
 
 

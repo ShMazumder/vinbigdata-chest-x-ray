@@ -22,6 +22,17 @@ CHANGELOG
             (e.g. ILD in both lungs, IoU ~0) are unaffected by the change.
             No retraining implied; nothing had been trained yet.
 2026-07-20  Kaggle dataset paths confirmed against a live run.
+2026-07-20  Multi-seed protocol adopted: SEEDS = (0, 1, 2), report mean±std.
+            Measured training cost on T4 is ~42 s/epoch true (39 s train + 3 s
+            val) => ~28 min per model per seed, ~4.2 h for the full 3x3 matrix
+            against a ~30 h weekly quota. The paper's central claim is a
+            comparison between architectures; a single-seed gap of ~0.01 mAP
+            is inside run-to-run noise and licenses no claim. seed_spread_
+            warning() now refuses to endorse a ranking whose between-model gap
+            is smaller than within-model std.
+            (Earlier note that staging the dataset locally would cut epoch time
+            was wrong -- I/O was already hidden behind GPU compute by the
+            dataloader workers. Staging is retained only for the label cache.)
 2026-07-20  data.yaml no longer writes an absolute `path:`. It baked in the
             producing session's location (/kaggle/working/vindr_yolo), which
             does not exist once the dataset is mounted read-only under
@@ -120,7 +131,13 @@ LARGE_TARGET_CLASSES = [0, 3]        # Aortic enlargement, Cardiomegaly
 # Frozen protocol -- see docs/proposals/iccit-2026-execution-plan.md section 2
 # --------------------------------------------------------------------------
 
-SEED = 0
+SEED = 0                   # single-run default
+SEEDS = (0, 1, 2)          # multi-seed protocol -- report mean±std over these.
+# Why 3 seeds: the paper's claim is a COMPARISON between architectures. A
+# single-seed gap of ~0.01 mAP is inside run-to-run noise for detection, so
+# single-seed results license no claim at all. Measured cost is ~28 min per
+# model per seed on T4 => ~4.2 h for 3 models x 3 seeds, against a ~30 h
+# weekly Kaggle quota. Cheapest available upgrade to what the paper can assert.
 IMGSZ = 512
 EPOCHS = 40
 BATCH = 16                 # <4 destroys mAP on this dataset (documented in ref)

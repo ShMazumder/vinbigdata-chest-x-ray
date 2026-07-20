@@ -171,6 +171,54 @@ def ground_truth_from_yolo(labels_dir, images_dir) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["image_id", "class_id", "x1", "y1", "x2", "y2"])
 
 
+def aggregate_seeds(results_by_run: dict) -> "pd.DataFrame":
+    """Collapse {(model, seed): eval_dict} into mean±std per model.
+
+    Input values must each carry 'map40' and 'map50'.
+
+    Returns one row per model with mean, std and n for both metrics, plus a
+    preformatted 'mAP@0.4' string for the paper table.
+    """
+    rows = []
+    for (model_key, seed), ev in results_by_run.items():
+        rows.append({"model": model_key, "seed": seed,
+                     "map40": ev["map40"], "map50": ev["map50"]})
+    df = pd.DataFrame(rows)
+
+    agg = df.groupby("model").agg(
+        map40_mean=("map40", "mean"), map40_std=("map40", "std"),
+        map50_mean=("map50", "mean"), map50_std=("map50", "std"),
+        n_seeds=("seed", "count"),
+    ).round(4)
+
+    for m in ("map40", "map50"):
+        label = f"mAP@{m[3]}.{m[4]}"
+        agg[label] = (agg[f"{m}_mean"].map("{:.3f}".format) + " ± "
+                      + agg[f"{m}_std"].fillna(0).map("{:.3f}".format))
+    return agg
+
+
+def seed_spread_warning(agg: "pd.DataFrame", metric: str = "map40_") -> None:
+    """Flag when between-model gaps are smaller than within-model noise.
+
+    This is the whole reason for running multiple seeds. If the best-to-worst
+    model gap does not exceed the typical seed-to-seed std, the ranking is not
+    supported by the data and must not be presented as a finding -- report the
+    models as indistinguishable on this metric instead.
+    """
+    means, stds = agg[f"{metric}mean"], agg[f"{metric}std"].fillna(0)
+    gap = means.max() - means.min()
+    noise = stds.mean()
+    print(f"\nbetween-model gap: {gap:.4f}   mean within-model std: {noise:.4f}")
+    if gap < noise:
+        print("⚠ Gap is INSIDE seed noise. The model ranking is not supported.")
+        print("  Report as indistinguishable; do not claim an ordering.")
+    elif gap < 2 * noise:
+        print("⚠ Gap is under 2x seed noise. Weak evidence -- hedge the claim.")
+    else:
+        print("✓ Gap exceeds 2x seed noise. Ranking is defensible.")
+
+
 def evaluate_full(model, images_dir, labels_dir, imgsz=512) -> dict:
     """Both thresholds in one pass. This is what feeds the results table."""
     from pathlib import Path
