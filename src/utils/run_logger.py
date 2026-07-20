@@ -162,8 +162,8 @@ CSV_FIELDS = [
     "n_train", "n_val", "n_test", "n_classes",
     # results
     "map40", "map50", "map5095", "precision", "recall",
-    # cost
-    "wall_clock_min", "sec_per_epoch", "fps",
+    # cost -- sec_per_epoch includes setup; sec_per_epoch_true does not.
+    "wall_clock_min", "sec_per_epoch", "sec_per_epoch_true", "train_only_min", "fps",
     # software
     "torch", "ultralytics", "cuda", "git_commit",
 ]
@@ -226,12 +226,41 @@ class RunLogger:
 
     # -- output ------------------------------------------------------------
 
+    def epoch_times_from_ultralytics(self, save_dir) -> "RunLogger":
+        """Read true per-epoch times from Ultralytics' results.csv.
+
+        `sec_per_epoch` derived from wall-clock divides by epochs and therefore
+        folds in setup: weight downloads, the AMP check, label scanning. On a
+        5-epoch smoke run that inflated the figure by ~25% (54.3 vs a real
+        ~42 s). Harmless for a smoke test, wrong in a paper.
+        """
+        import csv as _csv
+
+        path = Path(save_dir) / "results.csv"
+        if not path.exists():
+            return self
+        try:
+            with path.open() as f:
+                rows = list(_csv.DictReader(f))
+            key = next((k for k in rows[0] if k.strip() == "time"), None)
+            if not key or len(rows) < 2:
+                return self
+            cum = [float(r[key]) for r in rows]
+            per = [b - a for a, b in zip(cum, cum[1:])]
+            self.record["sec_per_epoch_true"] = round(sum(per) / len(per), 1)
+            self.record["train_only_min"] = round(cum[-1] / 60, 2)
+        except Exception as e:
+            print(f"[run_logger] could not parse results.csv: {e}")
+        return self
+
     def finish(self, status: str = "ok") -> dict[str, Any]:
         elapsed_min = (time.time() - self._t0) / 60
         self.record["status"] = status
         self.record["wall_clock_min"] = round(elapsed_min, 2)
         epochs = self.record.get("epochs")
         if epochs:
+            # NOTE: includes setup (downloads, AMP check, label scan).
+            # sec_per_epoch_true, when present, is the figure to report.
             self.record["sec_per_epoch"] = round(elapsed_min * 60 / epochs, 1)
 
         json_path = self.out_dir / f"{self.run_name}.json"

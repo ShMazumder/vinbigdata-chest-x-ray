@@ -113,6 +113,9 @@ def train_one(
     try:
         results = model.train(**train_kwargs)
         log.from_ultralytics(results)
+        # True per-epoch time, excluding weight downloads / AMP check / label
+        # scan. Wall-clock/epochs overstates it by ~25% on a short run.
+        log.epoch_times_from_ultralytics(runs_dir / "ultralytics" / run_name)
         status = "ok"
     except Exception as e:
         print(f"[train] FAILED: {e}")
