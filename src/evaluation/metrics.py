@@ -191,8 +191,9 @@ def aggregate_seeds(results_by_run: dict) -> "pd.DataFrame":
         n_seeds=("seed", "count"),
     ).round(4)
 
-    for m in ("map40", "map50"):
-        label = f"mAP@{m[3]}.{m[4]}"
+    # Explicit map -- deriving these by slicing "map40" gave "mAP@4.0".
+    labels = {"map40": "mAP@0.4", "map50": "mAP@0.5"}
+    for m, label in labels.items():
         agg[label] = (agg[f"{m}_mean"].map("{:.3f}".format) + " ± "
                       + agg[f"{m}_std"].fillna(0).map("{:.3f}".format))
     return agg
