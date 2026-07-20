@@ -42,26 +42,84 @@ import numpy as np
 # --------------------------------------------------------------------------
 
 
-def pick_target_layer(yolo_model, verbose: bool = True):
-    """Last conv layer before the detection head.
+def pick_target_layer(yolo_model, scale: str = "p3", verbose: bool = True):
+    """Neck feature map(s) feeding the detection head.
 
-    Ultralytics nests the real network at model.model.model (a Sequential).
-    The detect head is the final module; the layer feeding it is what we want.
-    Architectures differ across v8/v11/YOLO26, so resolve dynamically rather
-    than hardcoding an index.
+    DO NOT take the last Conv2d in the network -- that was the original
+    implementation and it was wrong on every architecture, in different ways:
+
+        YOLOv8s / YOLO11s -> in_ch=16 out_ch=1   (the DFL conv: a FIXED,
+                             non-learned projection over 16 distribution bins,
+                             buried inside the head)
+        YOLO26s           -> in_ch=128 out_ch=14 (the classification output
+                             conv -- YOLO26 removed DFL, so [-1] lands
+                             somewhere structurally different again)
+
+    Each would have produced a plausible-looking heatmap from the wrong tensor,
+    and because they differ per architecture the cross-model comparison would
+    have been meaningless without ever erroring.
+
+    Correct target: the multi-scale feature maps the Detect head consumes.
+    Ultralytics stores these indices on the head itself as `Detect.f`
+    (e.g. [15, 18, 21] for YOLOv8s, [16, 19, 22] for YOLO11s/YOLO26s), so this
+    resolves architecture-agnostically.
+
+    scale
+    -----
+    "p3"  stride 8,  64x64 at 512px input -- highest resolution. DEFAULT,
+          because Axis A concerns small lesions (Nodule/Mass 39.69% small,
+          Calcification 17.67%) and coarse maps cannot localise them.
+    "p4"  stride 16, 32x32
+    "p5"  stride 32, 16x16 -- too coarse for small-lesion attribution
+    "all" all three; pytorch-grad-cam aggregates across layers
     """
-    import torch.nn as nn
+    net = yolo_model.model.model          # nn.Sequential
 
-    net = yolo_model.model.model          # Sequential
-    candidates = [m for m in net.modules() if isinstance(m, nn.Conv2d)]
-    if not candidates:
-        raise RuntimeError("no Conv2d found -- inspect model.model.model manually")
-    layer = candidates[-1]
+    detect_idx = None
+    for i, m in enumerate(net):
+        if type(m).__name__ in ("Detect", "v10Detect", "YOLOEDetect"):
+            detect_idx = i
+    if detect_idx is None:
+        raise RuntimeError(
+            "no Detect head found -- inspect model.model.model manually"
+        )
+
+    feeds = list(getattr(net[detect_idx], "f", []))
+    if not feeds:
+        raise RuntimeError(f"Detect at index {detect_idx} exposes no .f indices")
+
+    order = {"p3": [0], "p4": [1], "p5": [2], "all": list(range(len(feeds)))}
+    if scale not in order:
+        raise ValueError(f"scale must be one of {list(order)}, got {scale!r}")
+    chosen = [feeds[i] for i in order[scale]]
+    layers = [net[i] for i in chosen]
+
     if verbose:
-        print(f"[xai] target layer: {type(layer).__name__} "
-              f"in_ch={layer.in_channels} out_ch={layer.out_channels}")
-        print("[xai] ⚠ verify this is pre-head, not inside the head, before D8")
-    return layer
+        print(f"[xai] Detect head at index {detect_idx}, consumes {feeds}")
+        print(f"[xai] scale={scale} -> module indices {chosen}")
+        for i, layer in zip(chosen, layers):
+            print(f"[xai]   net[{i}] = {type(layer).__name__}")
+    return layers if len(layers) > 1 else layers[0]
+
+
+def verify_cam_resolution(yolo_model, imgsz: int = 512, scale: str = "p3") -> None:
+    """Print the CAM grid size, so coarseness is visible before a batch run.
+
+    A stride-32 (P5) map is 16x16 at 512px input -- each cell covers 32x32
+    input pixels. Many Calcification boxes are smaller than one cell, which
+    makes box-overlap metrics meaningless at that scale.
+    """
+    import numpy as np
+
+    dummy = np.zeros((imgsz, imgsz), dtype=np.uint8)
+    layer = pick_target_layer(yolo_model, scale=scale, verbose=False)
+    cam = compute_cam(yolo_model, dummy, method="eigencam",
+                      target_layer=layer, imgsz=imgsz)
+    stride = imgsz / max(cam.shape)
+    print(f"[xai] scale={scale}: CAM grid {cam.shape}, ~{stride:.0f}px per cell")
+    if stride > 16:
+        print(f"[xai] ⚠ {stride:.0f}px cells are coarse for small-lesion "
+              f"attribution -- prefer scale='p3'")
 
 
 def compute_cam(yolo_model, image: np.ndarray, method: str = "eigencam",
@@ -77,7 +135,9 @@ def compute_cam(yolo_model, image: np.ndarray, method: str = "eigencam",
     import torch
     from pytorch_grad_cam import EigenCAM, GradCAMPlusPlus
 
-    target_layer = target_layer or pick_target_layer(yolo_model, verbose=False)
+    if target_layer is None:
+        target_layer = pick_target_layer(yolo_model, verbose=False)
+    layers = target_layer if isinstance(target_layer, list) else [target_layer]
     cls = {"eigencam": EigenCAM, "gradcam++": GradCAMPlusPlus}[method]
 
     img = cv2.resize(image, (imgsz, imgsz))
@@ -87,7 +147,7 @@ def compute_cam(yolo_model, image: np.ndarray, method: str = "eigencam",
     if torch.cuda.is_available():
         tensor = tensor.cuda()
 
-    cam = cls(model=yolo_model.model, target_layers=[target_layer])
+    cam = cls(model=yolo_model.model, target_layers=layers)
     grayscale = cam(input_tensor=tensor, targets=None)[0]
 
     rng = grayscale.max() - grayscale.min()
@@ -207,7 +267,7 @@ def deletion_insertion_auc(yolo_model, image: np.ndarray, cam: np.ndarray,
 
 def evaluate_xai(yolo_model, images_dir, labels_dir, method: str = "eigencam",
                  imgsz: int = 512, n_images=None, with_causal: bool = False,
-                 causal_subsample: int = 50):
+                 causal_subsample: int = 50, scale: str = "p3"):
     """Run every metric across a split. Returns a tidy per-image DataFrame.
 
     with_causal=False by default: deletion/insertion needs (steps+1)*2 forward
@@ -227,7 +287,7 @@ def evaluate_xai(yolo_model, images_dir, labels_dir, method: str = "eigencam",
     if n_images:
         paths = paths[:n_images]
 
-    target_layer = pick_target_layer(yolo_model)
+    target_layer = pick_target_layer(yolo_model, scale=scale)
     rows = []
 
     for i, p in enumerate(paths):
