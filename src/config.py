@@ -22,6 +22,15 @@ CHANGELOG
             (e.g. ILD in both lungs, IoU ~0) are unaffected by the change.
             No retraining implied; nothing had been trained yet.
 2026-07-20  Kaggle dataset paths confirmed against a live run.
+2026-07-20  data.yaml no longer writes an absolute `path:`. It baked in the
+            producing session's location (/kaggle/working/vindr_yolo), which
+            does not exist once the dataset is mounted read-only under
+            /kaggle/input/notebooks/<user>/<slug>/. Ultralytics then failed
+            with "images not found, missing path ...". Omitting `path:` makes
+            it resolve the splits relative to the yaml itself, which is correct
+            in both sessions. _validate_dataset() also repairs stale yamls in
+            place (writing a corrected copy to /kaggle/working) so datasets
+            committed before this change still work without re-running prep.
 2026-07-20  GPU: use T4, NOT P100. P100 is sm_60; current PyTorch requires
             sm_70+. Confirmed on a live Kaggle session -- P100 raises
             "not compatible with the current PyTorch installation" and will
@@ -240,10 +249,18 @@ def find_data_yaml(explicit: str | Path | None = None,
 
 
 def _validate_dataset(path: Path) -> Path:
-    """Confirm the dataset behind a data.yaml is real and complete."""
-    imgs = list((path.parent / "images" / "train").glob("*.jpg"))
+    """Confirm the dataset behind a data.yaml is real, and make it usable here.
+
+    Older data.yaml files carry an absolute `path:` from the session that
+    produced them (e.g. /kaggle/working/vindr_yolo). Once mounted read-only at
+    /kaggle/input/..., that path is gone and Ultralytics fails with
+    "images not found, missing path ...". Since /kaggle/input cannot be edited,
+    a corrected copy is written to /kaggle/working and returned instead.
+    """
+    root = path.parent
+    imgs = list((root / "images" / "train").glob("*.jpg"))
     if not imgs:
-        raise FileNotFoundError(f"{path.parent}/images/train is empty")
+        raise FileNotFoundError(f"{root}/images/train is empty")
 
     sample = imgs[:200]
     n_broken = sum(1 for p in sample if not p.exists())
@@ -257,7 +274,31 @@ def _validate_dataset(path: Path) -> Path:
     size_gb = sum(p.stat().st_size for p in sample) / len(sample) * len(imgs) / 1e9
     print(f"[config] data.yaml -> {path}")
     print(f"[config] {len(imgs)} train images, ~{size_gb:.2f} GB")
-    return path
+
+    # Detect a stale absolute `path:` and repair it transparently.
+    text = path.read_text()
+    stale = None
+    for line in text.splitlines():
+        if line.strip().startswith("path:"):
+            declared = Path(line.split("path:", 1)[1].strip())
+            if declared.resolve() != root.resolve() and not declared.exists():
+                stale = declared
+            break
+
+    if stale is None:
+        return path
+
+    fixed_lines = [ln for ln in text.splitlines()
+                   if not ln.strip().startswith("path:")]
+    fixed = "\n".join([f"path: {root}"] + fixed_lines) + "\n"
+
+    WORK.mkdir(parents=True, exist_ok=True)
+    out = WORK / "data.yaml"
+    out.write_text(fixed)
+    print(f"[config] stale 'path: {stale}' in the mounted yaml (does not exist "
+          f"in this session)")
+    print(f"[config] wrote corrected copy -> {out}")
+    return out
 
 
 def find_weights(search_root: Path | None = None) -> dict[str, str]:

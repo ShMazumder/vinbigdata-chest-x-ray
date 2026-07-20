@@ -151,10 +151,22 @@ def to_yolo_labels(
 
 
 def write_data_yaml(out_root: Path, classes: list[str]) -> Path:
+    """Write data.yaml WITHOUT an absolute `path:` key.
+
+    An absolute `path:` bakes in the producing session's location
+    (/kaggle/working/vindr_yolo). When the dataset is later mounted read-only
+    at /kaggle/input/notebooks/<user>/<slug>/vindr_yolo, that path no longer
+    exists and Ultralytics fails with "images not found, missing path ...".
+
+    Omitting `path:` makes Ultralytics resolve train/val/test relative to the
+    yaml file's own parent directory, which is correct in both sessions.
+    """
     path = out_root / "data.yaml"
     names = "\n".join(f"  {i}: {c}" for i, c in enumerate(classes))
     path.write_text(
-        f"path: {out_root}\ntrain: images/train\nval: images/val\ntest: images/test\n\n"
+        "# No absolute `path:` on purpose -- Ultralytics resolves the splits\n"
+        "# relative to this file, so the dataset stays portable across sessions.\n"
+        f"train: images/train\nval: images/val\ntest: images/test\n\n"
         f"nc: {len(classes)}\nnames:\n{names}\n"
     )
     print(f"wrote {path}")
