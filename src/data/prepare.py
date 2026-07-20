@@ -95,9 +95,21 @@ def stratified_split(
 
 def to_yolo_labels(
     df_fused: pd.DataFrame, dims: dict, splits: dict, out_root: Path,
-    image_dir: Path, copy_images: bool = False,
+    image_dir: Path, copy_images: bool = True,
 ) -> None:
-    """Write YOLO txt labels + place images. Format: cls cx cy w h (normalized)."""
+    """Write YOLO txt labels + place images. Format: cls cx cy w h (normalized).
+
+    copy_images defaults to True deliberately.
+
+    Symlinks work inside the session that creates them, and `verify()` will pass
+    because glob() finds a symlink whether or not it resolves. But Kaggle's
+    "Save Version -> Save Output" does not reliably follow them, so the saved
+    dataset ends up full of dangling links and notebook 02 fails with an opaque
+    "no images found" on D3.
+
+    Positive-only is ~4,394 images at ~200 KB = ~880 MB. Cheap. Copy them.
+    Only pass copy_images=False for a throwaway in-session experiment.
+    """
     for split_name, ids in splits.items():
         (out_root / "images" / split_name).mkdir(parents=True, exist_ok=True)
         (out_root / "labels" / split_name).mkdir(parents=True, exist_ok=True)
@@ -152,12 +164,27 @@ def write_data_yaml(out_root: Path, classes: list[str]) -> Path:
 def verify(out_root: Path, splits: dict) -> bool:
     """Post-build assertions. Run before D3. Cheap; catches silent breakage."""
     ok = True
+    total_bytes = 0
     for split_name, ids in splits.items():
         imgs = list((out_root / "images" / split_name).glob("*.jpg"))
         lbls = list((out_root / "labels" / split_name).glob("*.txt"))
         if len(imgs) != len(ids) or len(lbls) != len(ids):
             print(f"  ✗ {split_name}: {len(imgs)} imgs / {len(lbls)} lbls, expected {len(ids)}")
             ok = False
+
+        # glob() finds symlinks whether or not they resolve, so count real bytes.
+        # A dangling-symlink dataset passes every other check here and then fails
+        # opaquely during training, after it has been saved and re-attached.
+        n_links = sum(1 for p in imgs if p.is_symlink())
+        n_broken = sum(1 for p in imgs if not p.exists())
+        total_bytes += sum(p.stat().st_size for p in imgs if p.exists())
+        if n_broken:
+            print(f"  ✗ {split_name}: {n_broken} broken image links")
+            ok = False
+        elif n_links:
+            print(f"  ⚠ {split_name}: {n_links} images are SYMLINKS. These will not "
+                  f"survive Save Version -> Save Output. Re-run to_yolo_labels "
+                  f"with copy_images=True before saving.")
         empty = sum(1 for p in lbls if not p.read_text().strip())
         if empty:
             print(f"  ⚠ {split_name}: {empty} empty label files "
@@ -174,6 +201,7 @@ def verify(out_root: Path, splits: dict) -> bool:
                     print(f"  ✗ out-of-range coords in {p.name}: {line!r}")
                     ok = False
                     break
+    print(f"  dataset size on disk: {total_bytes / 1e9:.2f} GB")
     print("  ✓ verify passed" if ok else "  ✗ verify FAILED")
     return ok
 
