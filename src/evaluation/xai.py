@@ -188,8 +188,19 @@ def compute_cam(yolo_model, image: np.ndarray, method: str = "eigencam",
     device = next(net.parameters()).device
     tensor = tensor.to(device)
 
+    # Ultralytics freezes parameters when loading a checkpoint for inference,
+    # so the forward pass builds no autograd graph and gradient-based CAMs die
+    # with "element 0 of tensors does not require grad and does not have a
+    # grad_fn". EigenCAM is unaffected (PCA over activations, no backward);
+    # GradCAM++ fails on every image.
+    if method != "eigencam":
+        for p in net.parameters():
+            p.requires_grad_(True)
+        tensor.requires_grad_(True)
+
     cam = cls(model=_wrap_for_cam(net), target_layers=layers)
-    grayscale = cam(input_tensor=tensor, targets=None)[0]
+    with torch.enable_grad():           # guard against an ambient no_grad
+        grayscale = cam(input_tensor=tensor, targets=None)[0]
 
     rng = grayscale.max() - grayscale.min()
     return (grayscale - grayscale.min()) / (rng + 1e-9)
@@ -330,6 +341,7 @@ def evaluate_xai(yolo_model, images_dir, labels_dir, method: str = "eigencam",
 
     target_layer = pick_target_layer(yolo_model, scale=scale)
     rows = []
+    n_fail = 0                  # fail fast rather than logging 440 identical errors
 
     for i, p in enumerate(paths):
         if i % 50 == 0:
@@ -346,7 +358,15 @@ def evaluate_xai(yolo_model, images_dir, labels_dir, method: str = "eigencam",
             cam = compute_cam(yolo_model, img, method=method,
                               target_layer=target_layer, imgsz=imgsz)
         except Exception as e:
-            print(f"  ! CAM failed on {p.stem}: {e}")
+            n_fail += 1
+            if n_fail <= 3:
+                print(f"  ! CAM failed on {p.stem}: {e}")
+            if n_fail >= 10 and not rows:
+                raise RuntimeError(
+                    f"{n_fail} consecutive CAM failures with no successes "
+                    f"(method={method}, scale={scale}). Aborting rather than "
+                    f"burning a full pass. Last error: {e}"
+                )
             continue
 
         # Per-class, so Axis A (small vs large target) is separable.
