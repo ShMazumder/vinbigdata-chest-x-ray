@@ -151,6 +151,93 @@ def fusion_report(df_raw: pd.DataFrame, df_fused: pd.DataFrame) -> pd.DataFrame:
     return rep[["class", "raw", "fused", "retained_%"]]
 
 
+def count_near_duplicates(df_fused: pd.DataFrame, iou_thr: float = 0.25) -> dict:
+    """Count same-class boxes that still overlap after fusion.
+
+    A same-class pair above ~0.25 IoU post-fusion almost certainly describes
+    ONE finding that two raters bounded differently. Training on it teaches the
+    model to emit duplicate detections, which costs precision at every IoU.
+
+    Spatially distinct same-class lesions -- ILD in both lungs, nodules in
+    different zones -- have IoU ~0 and are correctly NOT counted here. That is
+    what makes this a usable signal rather than a proxy for "boxes per image".
+    """
+    from ..evaluation.metrics import iou_matrix
+
+    dup_pairs, dup_images, per_class = 0, set(), {}
+    for (img_id, cls), g in df_fused.groupby(["image_id", "class_id"]):
+        if len(g) < 2:
+            continue
+        b = g[["x_min", "y_min", "x_max", "y_max"]].to_numpy(dtype=float)
+        m = iou_matrix(b, b)
+        np.fill_diagonal(m, 0.0)
+        n = int((m > iou_thr).sum() // 2)
+        if n:
+            dup_pairs += n
+            dup_images.add(img_id)
+            per_class[int(cls)] = per_class.get(int(cls), 0) + n
+
+    return {
+        "n_boxes": len(df_fused),
+        "dup_pairs": dup_pairs,
+        "dup_images": len(dup_images),
+        "dup_per_class": dict(sorted(per_class.items(), key=lambda kv: -kv[1])),
+    }
+
+
+def sweep_fusion_iou(
+    df_pos: pd.DataFrame, dims: dict, thresholds=(0.3, 0.4, 0.5),
+    method: str = "wbf", audit_iou: float = 0.25,
+) -> pd.DataFrame:
+    """Fuse at several thresholds and count surviving duplicates at each.
+
+    How to read the output -- you are looking for the knee:
+      - `dup_pairs` should fall sharply as the threshold drops
+      - `n_boxes` must NOT collapse toward n_raw/3 (that means every trio is
+        merging unconditionally, including genuinely distinct lesions)
+    Pick the lowest threshold that kills duplicates while retention stays
+    comfortably above ~40%.
+    """
+    rows = []
+    n_raw = len(df_pos[df_pos.class_id != 14])
+    for thr in thresholds:
+        fused = fuse_dataset(df_pos, dims, method=method, iou_thr=thr, verbose=False)
+        audit = count_near_duplicates(fused, iou_thr=audit_iou)
+        rows.append({
+            "iou_thr": thr,
+            "n_boxes": audit["n_boxes"],
+            "retained_%": round(audit["n_boxes"] / n_raw * 100, 1),
+            "dup_pairs": audit["dup_pairs"],
+            "dup_images": audit["dup_images"],
+        })
+        print(f"  thr={thr}: {audit['n_boxes']} boxes "
+              f"({rows[-1]['retained_%']}% retained), "
+              f"{audit['dup_pairs']} dup pairs across {audit['dup_images']} images")
+    print(f"\n  floor if every 3-rater group merged: ~{n_raw // 3} boxes")
+    return pd.DataFrame(rows)
+
+
+def find_duplicate_images(df_fused: pd.DataFrame, iou_thr: float = 0.25,
+                          limit: int = 6) -> list[str]:
+    """Worst-offending image ids, for targeted re-plotting after a threshold change."""
+    from ..evaluation.metrics import iou_matrix
+
+    scored = []
+    for img_id, g_img in df_fused.groupby("image_id"):
+        n = 0
+        for _, g in g_img.groupby("class_id"):
+            if len(g) < 2:
+                continue
+            b = g[["x_min", "y_min", "x_max", "y_max"]].to_numpy(dtype=float)
+            m = iou_matrix(b, b)
+            np.fill_diagonal(m, 0.0)
+            n += int((m > iou_thr).sum() // 2)
+        if n:
+            scored.append((n, img_id))
+    scored.sort(reverse=True)
+    return [img_id for _, img_id in scored[:limit]]
+
+
 def plot_fusion_examples(
     df_raw: pd.DataFrame,
     df_fused: pd.DataFrame,

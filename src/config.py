@@ -11,6 +11,17 @@ every affected model. Never patch a value inside a notebook.
 CHANGELOG
 ---------
 2026-07-19  Initial freeze.
+2026-07-20  FUSION_IOU 0.5 -> 0.4. Visual inspection of 12 fused images showed
+            systematic under-merging: same-class boxes from different raters
+            covering one finding survived as 2-4 separate ground-truth objects
+            (Pulmonary fibrosis, Pleural thickening, Pleural effusion,
+            Nodule/Mass). Measured example: two rater boxes on one pleural
+            thickening had IoU 0.38, below the 0.5 cut. Per-class retention
+            corroborated -- diffuse classes retained 72-84% vs 44-47% for the
+            anatomically-anchored ones. Spatially distinct same-class lesions
+            (e.g. ILD in both lungs, IoU ~0) are unaffected by the change.
+            No retraining implied; nothing had been trained yet.
+2026-07-20  Kaggle dataset paths confirmed against a live run.
 """
 
 from pathlib import Path
@@ -23,8 +34,16 @@ KAGGLE_INPUT = Path("/kaggle/input")
 WORK = Path("/kaggle/working")
 
 # Pre-resized 1024px JPG dataset -- do NOT re-derive from the 192 GB DICOM set.
-RAW_IMAGES = KAGGLE_INPUT / "vinbigdata-1024-jpg-dataset"
+# Path confirmed against a live Kaggle run 2026-07-20.
+RAW_IMAGES = KAGGLE_INPUT / "datasets" / "sunghyunjun" / "vinbigdata-1024-jpg-dataset"
 TRAIN_CSV = RAW_IMAGES / "train.csv"
+IMAGE_DIR = RAW_IMAGES / "train"
+
+# train.csv carries BOTH coordinate systems:
+#   x_min/y_min/x_max/y_max  -> already scaled to the 1024px JPGs  [USE THESE]
+#   raw_x_min/... + raw_width/raw_height/scale_x/scale_y -> original DICOM space
+# Using the raw_* columns against the resized JPGs would silently produce boxes
+# 2-3x too large. Everything downstream assumes the unprefixed columns.
 
 DATA_ROOT = WORK / "vindr_yolo"      # YOLO-format dataset gets built here
 RUNS_DIR = WORK / "runs"             # RunLogger output
@@ -86,8 +105,13 @@ MODELS = {
 # labeling, not measurement. This remains unsettled -- do not present either
 # choice as established.
 FUSION_METHOD = "wbf"      # "wbf" | "nms"
-FUSION_IOU = 0.5
+FUSION_IOU = 0.4           # lowered from 0.5 -- see CHANGELOG 2026-07-20
 FUSION_SKIP_BOX_THR = 0.0  # keep all boxes; raters have no confidence scores
+
+# Threshold for flagging surviving near-duplicates in the post-fusion audit.
+# Two same-class boxes above this IoU after fusion almost certainly describe
+# one finding and should have merged.
+DUPLICATE_AUDIT_IOU = 0.25
 
 # Split. Kaggle test labels are not public, so CV on the 15K train set is the
 # only option. Stratified by the image's rarest present class.
