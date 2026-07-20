@@ -377,6 +377,7 @@ def evaluate_xai(yolo_model, images_dir, labels_dir, method: str = "eigencam",
                 "class_id": int(cls_id),
                 "class": CLASSES[int(cls_id)] if int(cls_id) < len(CLASSES) else "?",
                 "method": method,
+                "scale": scale,
                 "n_boxes": len(boxes),
                 "box_area_frac": float(
                     ((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])).sum()
