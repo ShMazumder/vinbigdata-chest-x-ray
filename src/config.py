@@ -181,45 +181,80 @@ CAM_PERCENTILE = 90          # threshold for CAM-vs-box IoU
 DELETION_STEPS = 20          # deletion/insertion AUC granularity
 
 
-def find_data_yaml(search_root: Path | None = None) -> Path:
-    """Locate the prepared dataset's data.yaml under /kaggle/input.
+def find_data_yaml(explicit: str | Path | None = None,
+                   search_root: Path | None = None) -> Path:
+    """Locate the prepared dataset's data.yaml. No hardcoded usernames or slugs.
 
-    Notebook outputs mount at a path derived from the notebook slug, which is
-    not knowable in advance. Rather than hardcode a guess, find it.
+    Kaggle mounts a notebook's output at
+        /kaggle/input/notebooks/<username>/<notebook-slug>/<your-dirs>/
+    so the real depth is 4+ levels and both the username and the slug vary.
+    Searched depth-first from shallow to deep, with a recursive fallback.
 
-    Also validates that the images are real files, not dangling symlinks -- a
-    notebook-output mount can carry links that resolve in the producing session
-    and break in the consuming one.
+    Pass `explicit` to skip the search entirely if you already know the path.
+
+    Also validates that images are real files, not dangling symlinks -- a
+    notebook-output mount can carry links that resolved in the producing
+    session and break in the consuming one.
     """
+    if explicit:
+        path = Path(explicit)
+        if not path.exists():
+            raise FileNotFoundError(f"explicit path does not exist: {path}")
+        return _validate_dataset(path)
+
     roots = [search_root] if search_root else [KAGGLE_INPUT, WORK]
-    found = []
+    # Shallow patterns first -- cheap. The recursive fallback walks every
+    # attached dataset, which can mean tens of thousands of image files.
+    patterns = ["data.yaml", "*/data.yaml", "*/*/data.yaml",
+                "*/*/*/data.yaml", "*/*/*/*/data.yaml", "*/*/*/*/*/data.yaml"]
+
+    found: list[Path] = []
     for root in roots:
-        if root and root.exists():
-            found.extend(root.glob("*/data.yaml"))
-            found.extend(root.glob("*/*/data.yaml"))
+        if not (root and root.exists()):
+            continue
+        for pat in patterns:
+            found.extend(root.glob(pat))
+            if found:
+                break
+        if found:
+            break
+    if not found:                                     # last resort
+        for root in roots:
+            if root and root.exists():
+                found.extend(root.glob("**/data.yaml"))
 
     if not found:
         raise FileNotFoundError(
-            f"no data.yaml under {roots}. In notebook 02: Add Data -> "
-            f"'Notebook Output Files' tab -> filter 'Your Work' -> notebook 01. "
-            f"Note this requires notebook 01 to have been committed with "
-            f"'Save & Run All', not Quick Save."
+            f"no data.yaml under {roots}.\n"
+            f"  1. Notebook 01 must be committed with 'Save & Run All' (not Quick Save)\n"
+            f"  2. Here: Add Data -> 'Notebook Output Files' -> 'Your Work' -> notebook 01\n"
+            f"  3. Or pass the path directly: C.find_data_yaml('/kaggle/input/.../data.yaml')"
         )
-    if len(found) > 1:
-        print(f"[config] multiple data.yaml found, using first: {found}")
 
-    path = found[0]
+    # Prefer a candidate that actually has training images.
+    usable = [p for p in found if (p.parent / "images" / "train").is_dir()]
+    if len(found) > 1:
+        print(f"[config] {len(found)} data.yaml candidates; "
+              f"{len(usable)} with images/train")
+    return _validate_dataset((usable or found)[0])
+
+
+def _validate_dataset(path: Path) -> Path:
+    """Confirm the dataset behind a data.yaml is real and complete."""
     imgs = list((path.parent / "images" / "train").glob("*.jpg"))
     if not imgs:
         raise FileNotFoundError(f"{path.parent}/images/train is empty")
-    n_broken = sum(1 for p in imgs[:200] if not p.exists())
+
+    sample = imgs[:200]
+    n_broken = sum(1 for p in sample if not p.exists())
     if n_broken:
         raise RuntimeError(
-            f"{n_broken}/200 sampled images are broken links. Notebook 01 must "
-            f"run to_yolo_labels with copy_images=True (now the default) and be "
-            f"re-committed."
+            f"{n_broken}/{len(sample)} sampled images are broken links. "
+            f"Notebook 01 must run to_yolo_labels with copy_images=True "
+            f"(now the default) and be re-committed."
         )
-    size_gb = sum(p.stat().st_size for p in imgs[:200]) / 200 * len(imgs) / 1e9
+
+    size_gb = sum(p.stat().st_size for p in sample) / len(sample) * len(imgs) / 1e9
     print(f"[config] data.yaml -> {path}")
     print(f"[config] {len(imgs)} train images, ~{size_gb:.2f} GB")
     return path
@@ -228,8 +263,9 @@ def find_data_yaml(search_root: Path | None = None) -> Path:
 def find_weights(search_root: Path | None = None) -> dict[str, str]:
     """Locate trained best.pt files, wherever notebook 02's output mounted.
 
-    Returns {model_key: path}. Same rationale as find_data_yaml -- the mount
-    path depends on the notebook slug and is not knowable in advance.
+    Returns {model_key: path}. Same rationale as find_data_yaml -- Kaggle
+    mounts notebook output under /kaggle/input/notebooks/<username>/<slug>/,
+    both of which vary. Recursive by design; no username or slug is assumed.
     """
     roots = [search_root] if search_root else [KAGGLE_INPUT, WORK]
     out: dict[str, str] = {}
@@ -244,11 +280,17 @@ def find_weights(search_root: Path | None = None) -> dict[str, str]:
 
     if not out:
         raise FileNotFoundError(
-            f"no best.pt under {roots}. In notebook 03: Add Data -> "
-            f"'Notebook Output Files' -> 'Your Work' -> notebook 02."
+            f"no best.pt under {roots}.\n"
+            f"  Add Data -> 'Notebook Output Files' -> 'Your Work' -> notebook 02.\n"
+            f"  Or pass paths directly as a {{model_key: path}} dict."
         )
     for k in MODELS:
         print(f"[config] {k}: {out.get(k, 'MISSING')}")
+    missing = [k for k in MODELS if k not in out]
+    if missing:
+        print(f"[config] WARNING: {missing} not found -- notebook 03 will run "
+              f"on {len(out)} model(s). Two models still gives Axis B "
+              f"(NMS vs NMS-free) if one of them is yolo26s.")
     return out
 
 
