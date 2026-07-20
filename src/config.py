@@ -22,6 +22,19 @@ CHANGELOG
             (e.g. ILD in both lungs, IoU ~0) are unaffected by the change.
             No retraining implied; nothing had been trained yet.
 2026-07-20  Kaggle dataset paths confirmed against a live run.
+2026-07-20  XAI target layer FIXED, and XAI_SCALE added. The original
+            pick_target_layer took the last Conv2d in the network, which was
+            wrong on every architecture and wrong DIFFERENTLY on each:
+              YOLOv8s/YOLO11s -> the DFL conv (in=16, out=1), a fixed
+                                 non-learned projection inside the head
+              YOLO26s         -> the classification output conv (in=128,
+                                 out=14); YOLO26 removed DFL so [-1] lands
+                                 somewhere structurally different
+            Each would have produced plausible heatmaps from the wrong tensor
+            without erroring, making the cross-model comparison meaningless.
+            Now resolved from Detect.f (the feature indices the head actually
+            consumes), defaulting to P3 (stride 8, 64x64 at 512px) because
+            Axis A concerns small lesions.
 2026-07-20  Multi-seed protocol adopted: SEEDS = (0, 1, 2), report mean±std.
             Measured training cost on T4 is ~42 s/epoch true (39 s train + 3 s
             val) => ~28 min per model per seed, ~4.2 h for the full 3x3 matrix
@@ -202,6 +215,13 @@ PUBLISHED_BASELINES = {
 # --------------------------------------------------------------------------
 
 XAI_METHODS = ["eigencam", "gradcam++"]   # D-RISE optional, only if ahead on D9
+
+# Which neck feature map to attribute from. "p3" = stride 8 = 64x64 grid at
+# 512px input (~8 px per cell). Chosen because Axis A is about small lesions:
+# P5 (stride 32) gives 16x16, i.e. 32 px per cell, and many Calcification
+# boxes are smaller than a single cell -- box-overlap metrics on a map that
+# coarse measure nothing. See xai.pick_target_layer docstring.
+XAI_SCALE = "p3"                          # "p3" | "p4" | "p5" | "all"
 XAI_N_IMAGES = None          # None = whole test split; set an int to subsample
 CAM_PERCENTILE = 90          # threshold for CAM-vs-box IoU
 DELETION_STEPS = 20          # deletion/insertion AUC granularity
