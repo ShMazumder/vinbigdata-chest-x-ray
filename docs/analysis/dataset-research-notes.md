@@ -90,7 +90,32 @@ Duplicate pairs roughly **halve per step while retention moves only 6.8 points a
 
 Final: **WBF @ IoU 0.25** (`config.py` CHANGELOG 2026-07-20). Spatially distinct same-class lesions (ILD in both lungs, IoU ≈ 0) are unaffected at any threshold.
 
-**Residual risk**: at 0.25, two genuinely distinct *adjacent* lesions could merge. Nodule/Mass and Calcification are the exposed classes — baselines at 0.4 were 70.9% and 75.5% retention. If they crater, the fix is a per-class threshold rather than a lower global one.
+**Residual over-merging risk — checked and cleared.** The concern was that 0.25 might merge two genuinely distinct *adjacent* lesions. Measured 0.4 → 0.25:
+
+| Class | @0.4 | @0.25 | Δ |
+|---|---|---|---|
+| Nodule/Mass | 70.9% | 69.2% | −1.7 |
+| Calcification | 75.5% | 72.7% | −2.8 |
+| Cardiomegaly | 43.0% | 42.6% | −0.4 |
+| Aortic enlargement | 44.8% | 43.4% | −1.4 |
+
+Nothing cratered; nothing approached the 33.3% floor. **Threshold frozen at 0.25.**
+
+**Final dataset (WBF @ 0.25):** 36,096 raw → **21,473 fused boxes** (59.5%), **58 residual duplicate pairs across 56 images** (0.27% of boxes — noise, likely genuinely adjacent lesions). Splits 3,515 / 439 / 440 images. Dataset 0.93 GB.
+
+Per-class retention at 0.25: Cardiomegaly 42.6, Aortic enlargement 43.4, Pneumothorax 51.8, Pleural effusion 57.5, Pulmonary fibrosis 61.0, ILD 65.3, Nodule/Mass 69.2, Infiltration 69.8, Calcification 72.7, Pleural thickening 72.4, Consolidation 73.9, Lung Opacity 73.7, Other lesion 77.1, Atelectasis 78.1.
+
+### 2c. Tail-Class Reporting Rule — decided before scores were seen
+
+Test split holds **Pneumothorax n=10** and **Atelectasis n=22**. AP on ten boxes is meaningless — one detection moves it ~10 points — and because mAP averages over all classes with ground truth, that variance propagates into the headline number.
+
+**Rule fixed 2026-07-20, before any model was trained:**
+
+1. Keep all 14 classes in mAP. Excluding them would break comparability with the published 0.253 / 0.314 / 0.338 / 0.415 / 0.453 figures.
+2. Report per-class AP **with `n` shown**.
+3. State the n<30 caveat in limitations.
+
+Recorded here because choosing a reporting rule after seeing scores is cherry-picking, whether or not it is intended as such.
 
 > The principled fix is a **consensus rule** — require ≥2 of 3 raters to agree before a box becomes ground truth. That merges *and* filters single-rater spurious findings, which threshold tuning does not address: currently any single rater's box becomes ground truth. Out of scope for the ICCIT deadline; natural bridge to P5.
 
