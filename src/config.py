@@ -301,6 +301,46 @@ def _validate_dataset(path: Path) -> Path:
     return out
 
 
+def stage_dataset_local(data_yaml: Path, dest: Path | None = None) -> Path:
+    """Copy the mounted dataset to local disk and return the new data.yaml.
+
+    Measured on Kaggle 2026-07-20: reading from /kaggle/input runs at ~35 MB/s.
+    At 3,515 images x 216 KB = ~760 MB per epoch, that is ~22 s of a 54 s epoch
+    spent on I/O. Ultralytics also cannot write its label cache to the
+    read-only mount, so every run repeats a ~15 s label scan.
+
+    Copy costs ~1 min once. Over 3 models x 40 epochs it pays for itself many
+    times over.
+    """
+    import shutil
+    import time
+
+    src_root = Path(data_yaml).parent
+    dest = Path(dest or WORK / "vindr_yolo_local")
+
+    if (dest / "images" / "train").is_dir():
+        n = len(list((dest / "images" / "train").glob("*.jpg")))
+        print(f"[config] already staged at {dest} ({n} train images)")
+    else:
+        t0 = time.time()
+        print(f"[config] staging {src_root} -> {dest} ...")
+        for split in ("train", "val", "test"):
+            for kind in ("images", "labels"):
+                s, d = src_root / kind / split, dest / kind / split
+                if s.is_dir():
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+        print(f"[config] staged in {time.time() - t0:.0f}s")
+
+    names = "\n".join(f"  {i}: {c}" for i, c in enumerate(CLASSES))
+    out = dest / "data.yaml"
+    out.write_text(
+        f"train: images/train\nval: images/val\ntest: images/test\n\n"
+        f"nc: {len(CLASSES)}\nnames:\n{names}\n"
+    )
+    print(f"[config] local data.yaml -> {out}")
+    return out
+
+
 def find_weights(search_root: Path | None = None) -> dict[str, str]:
     """Locate trained best.pt files, wherever notebook 02's output mounted.
 

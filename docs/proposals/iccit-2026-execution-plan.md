@@ -14,6 +14,17 @@
 
 **Not claiming SOTA.** Published bar is RT-DETR 45.3 mAP@0.5, YOLOv11-MFF 41.5, YOLO-CXR 0.338. A 512px `s`-scale model at 40 epochs will land below these. Claim: controlled comparison + first YOLO26 evaluation on this dataset + quantified explainability. If a reviewer reads a SOTA claim anywhere in the draft, the paper dies.
 
+> [!CAUTION]
+> **Stronger than "don't claim SOTA": our numbers are not directly comparable to the published ones at all.**
+>
+> We train and evaluate on the **positive-only subset** — every image in train/val/test contains at least one finding. There are no normal images, so the model never has an opportunity to produce a false positive on a healthy chest. That inflates precision and mAP relative to any evaluation over the full 15,000-image set.
+>
+> Whether YOLO-CXR / YOLOv11-MFF / RT-DETR used positive-only is **not established**. Until it is, the published figures belong in a *related work* table with an explicit protocol column — never in the same column as ours.
+>
+> Smoke-test evidence (5 epochs, yolov8s): **mAP@0.5 = 0.310** already, versus YOLO-CXR's published 0.338 at full training. A 5-epoch model does not nearly match a published architecture; the protocols differ.
+>
+> **Action for the paper:** state the positive-only protocol in the abstract, not just methods, and add a protocol column to the comparison table.
+
 ---
 
 ## 1. Compute Budget — the binding constraint
