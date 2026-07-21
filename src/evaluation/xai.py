@@ -103,23 +103,42 @@ def pick_target_layer(yolo_model, scale: str = "p3", verbose: bool = True):
 
 
 def verify_cam_resolution(yolo_model, imgsz: int = 512, scale: str = "p3") -> None:
-    """Print the CAM grid size, so coarseness is visible before a batch run.
+    """Print the NATIVE feature-map grid the CAM is computed on.
 
-    A stride-32 (P5) map is 16x16 at 512px input -- each cell covers 32x32
-    input pixels. Many Calcification boxes are smaller than one cell, which
-    makes box-overlap metrics meaningless at that scale.
+    Not the CAM's own shape -- pytorch-grad-cam upsamples every CAM to the
+    input size (512x512), so cam.shape is always (imgsz, imgsz) and tells you
+    nothing about the resolution the attribution actually ran at. This hooks
+    the target layer and reads the real activation H x W.
+
+    A stride-32 (P5) map is 16x16 at 512px -- each cell covers 32x32 input
+    pixels, larger than many Calcification boxes. That coarseness is exactly
+    why P5 is the control scale, not the primary one.
     """
     import numpy as np
+    import torch
 
-    dummy = np.zeros((imgsz, imgsz), dtype=np.uint8)
     layer = pick_target_layer(yolo_model, scale=scale, verbose=False)
-    cam = compute_cam(yolo_model, dummy, method="eigencam",
-                      target_layer=layer, imgsz=imgsz)
-    stride = imgsz / max(cam.shape)
-    print(f"[xai] scale={scale}: CAM grid {cam.shape}, ~{stride:.0f}px per cell")
+    layer = layer[0] if isinstance(layer, list) else layer
+
+    captured = {}
+    h = layer.register_forward_hook(
+        lambda m, i, o: captured.update(shape=tuple(o.shape[-2:]))
+    )
+    try:
+        dummy = torch.zeros(1, 3, imgsz, imgsz,
+                            device=next(yolo_model.model.parameters()).device)
+        with torch.no_grad():
+            yolo_model.model(dummy)
+    finally:
+        h.remove()
+
+    gh, gw = captured.get("shape", (0, 0))
+    stride = imgsz / max(gh, gw) if gh else float("nan")
+    print(f"[xai] scale={scale}: native grid {gh}x{gw}, ~{stride:.0f}px per cell "
+          f"(CAM is then upsampled to {imgsz}x{imgsz})")
     if stride > 16:
-        print(f"[xai] ⚠ {stride:.0f}px cells are coarse for small-lesion "
-              f"attribution -- prefer scale='p3'")
+        print(f"[xai]   {stride:.0f}px cells are coarse -- this is the control "
+              f"scale, expect lower small-lesion faithfulness here by construction")
 
 
 def _wrap_for_cam(detection_model):
